@@ -1,0 +1,25 @@
+﻿==============================
+FILE: src\app\chat\page.tsx
+==============================
+import { redirect } from "next/navigation";
+
+export default function ChatPlatform() {
+  redirect("/create");
+}
+
+
+==============================
+FILE: src\app\create\page.tsx
+==============================
+import { Suspense } from "react";
+import { AppShell } from "@/components/app-shell";
+
+export default function CreatePage() {
+  return (
+    <Suspense fallback={<div className="h-screen w-screen bg-black" />}>
+      <AppShell />
+    </Suspense>
+  );
+}
+
+

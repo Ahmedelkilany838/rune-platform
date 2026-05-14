@@ -1,0 +1,66 @@
+﻿==============================
+TYPECHECK OUTPUT
+==============================
+
+> rune-frontend@0.1.0 typecheck
+> tsc --noEmit
+
+src/components/app-shell.tsx(85,17): error TS2345: Argument of type 'string' is not assignable to parameter of type 'RouteImpl<string>'.
+
+
+==============================
+APP SHELL FILE SNIPPETS
+==============================
+
+FILE: D:\Ai\AI Creaive\Web\src\components\app-shell.tsx
+  60:       if (session) {
+  61:         setActiveChatId(session.id);
+  62:         if (session.projectId) setActiveProjectId(session.projectId);
+  63:         setShowProjectDashboard(false);
+  64:         setMessages(session.messages);
+  65:         setConversationSessionId(session.conversationSessionId);
+  66:         setLatestResponse(session.latestResponse);
+  67:         setConnectionStatus(session.latestResponse ? (session.latestResponse.ok ? "connected" : "error") : "not_tested");
+  68:       }
+  69:     } else if (urlProject && urlProject !== activeProjectId && !urlChat) {
+  70:       setActiveProjectId(urlProject);
+  71:       setActiveChatId(null);
+  72:       setShowProjectDashboard(true);
+  73:     } else if (!urlChat && !urlProject && (activeChatId || activeProjectId)) {
+  74:       setActiveChatId(null);
+  75:       setActiveProjectId(null);
+  76:       setShowProjectDashboard(false);
+  77:     }
+  78:   }, [searchParams, chatSessions.length]); // Re-run when sessions load
+  79: 
+  80:   function updateUrl(chat: string | null, project: string | null) {
+  81:     const params = new URLSearchParams();
+  82:     if (chat) params.set("chat", chat);
+  83:     if (project) params.set("project", project);
+  84:     const query = params.toString();
+  85:     router.push(query ? `?${query}` : window.location.pathname);
+  86:   }
+  87: 
+  88:   function persistSessions(nextSessions: StoredChatSession[]) {
+  89:     const sortedSessions = [...nextSessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  90:     chatSessionsRef.current = sortedSessions;
+  91:     setChatSessions(sortedSessions);
+  92:     saveStoredChatSessions(sortedSessions);
+  93:   }
+  94: 
+  95:   function startNewChat() {
+  96:     const now = new Date().toISOString();
+  97:     const newSession: StoredChatSession = {
+  98:       id: createClientId("chat"),
+  99:       title: "New brief",
+ 100:       createdAt: now,
+ 101:       updatedAt: now,
+ 102:       conversationSessionId: null,
+ 103:       messages: [],
+ 104:       latestResponse: null,
+ 105:       projectId: activeProjectId
+ 106:     };
+ 107: 
+ 108:     const currentSessions = chatSessionsRef.current;
+ 109:     persistSessions([newSession, ...currentSessions]);
+ 110:     setActiveChatId(newSession.id);

@@ -1,0 +1,111 @@
+<svg width="2400" height="1350" viewBox="0 0 2400 1350" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="base" x1="0" y1="0" x2="2400" y2="1350" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#05070D"/>
+      <stop offset="0.36" stop-color="#080B14"/>
+      <stop offset="0.62" stop-color="#120807"/>
+      <stop offset="1" stop-color="#05070D"/>
+    </linearGradient>
+
+    <radialGradient id="warmBloom" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1840 610) rotate(-7) scale(820 520)">
+      <stop stop-color="#FFF4B8" stop-opacity="0.92"/>
+      <stop offset="0.18" stop-color="#F97316" stop-opacity="0.62"/>
+      <stop offset="0.46" stop-color="#EA580C" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#05070D" stop-opacity="0"/>
+      <animate attributeName="r" values="1;1.08;1" dur="10s" repeatCount="indefinite"/>
+    </radialGradient>
+
+    <radialGradient id="leftDepth" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(520 565) rotate(2) scale(720 520)">
+      <stop stop-color="#111827" stop-opacity="0.9"/>
+      <stop offset="0.52" stop-color="#0B0F19" stop-opacity="0.52"/>
+      <stop offset="1" stop-color="#05070D" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="readFade" x1="0" y1="0" x2="1280" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#05070D" stop-opacity="0.96"/>
+      <stop offset="0.35" stop-color="#070B14" stop-opacity="0.78"/>
+      <stop offset="0.65" stop-color="#0B0F19" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#05070D" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="door" x1="1880" y1="148" x2="2018" y2="1160" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7C2"/>
+      <stop offset="0.34" stop-color="#FDE68A"/>
+      <stop offset="0.68" stop-color="#F97316"/>
+      <stop offset="1" stop-color="#B83D08"/>
+    </linearGradient>
+
+    <linearGradient id="beamWall" x1="1950" y1="184" x2="700" y2="775" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7C2" stop-opacity="0.8"/>
+      <stop offset="0.16" stop-color="#FDE68A" stop-opacity="0.44"/>
+      <stop offset="0.44" stop-color="#F97316" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#05070D" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="floorLight" x1="1965" y1="1006" x2="290" y2="1255" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF7C2" stop-opacity="0.76"/>
+      <stop offset="0.22" stop-color="#F97316" stop-opacity="0.42"/>
+      <stop offset="0.62" stop-color="#EA580C" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#05070D" stop-opacity="0"/>
+    </linearGradient>
+
+    <linearGradient id="vignette" x1="0" y1="0" x2="2400" y2="1350" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#05070D" stop-opacity="0.22"/>
+      <stop offset="0.52" stop-color="#05070D" stop-opacity="0"/>
+      <stop offset="1" stop-color="#05070D" stop-opacity="0.62"/>
+    </linearGradient>
+
+    <filter id="softBlur" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="34"/>
+    </filter>
+
+    <filter id="mediumBlur" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="0.78" numOctaves="3" stitchTiles="stitch"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer>
+        <feFuncA type="table" tableValues="0 0.09"/>
+      </feComponentTransfer>
+    </filter>
+  </defs>
+
+  <rect width="2400" height="1350" fill="url(#base)"/>
+  <rect width="2400" height="1350" fill="url(#warmBloom)" opacity="0.78"/>
+  <rect width="1300" height="1350" fill="url(#leftDepth)" opacity="0.78"/>
+
+  <!-- Soft cinematic planes without hard grid lines -->
+  <path d="M1350 0H2400V1350H1230C1352 1038 1420 456 1350 0Z" fill="#05070D" opacity="0.42"/>
+  <path d="M1675 0H2400V1350H1588C1708 1012 1746 414 1675 0Z" fill="#1B0906" opacity="0.44"/>
+
+  <!-- Light aperture and atmospheric spill -->
+  <path d="M1908 166H2036V1116H1908V166Z" fill="url(#door)">
+    <animate attributeName="opacity" values="0.9;1;0.94;1" dur="7s" repeatCount="indefinite"/>
+  </path>
+  <path d="M1908 166H2036V1116H1908V166Z" fill="#F97316" opacity="0.48" filter="url(#softBlur)"/>
+  <path d="M1908 166H1924V1116H1908V166Z" fill="#FFF7C2" opacity="0.76"/>
+
+  <path d="M1920 214C1530 320 1228 462 824 702C1160 742 1502 854 1920 1068V214Z" fill="url(#beamWall)" filter="url(#mediumBlur)" opacity="0.78">
+    <animate attributeName="opacity" values="0.62;0.82;0.68" dur="11s" repeatCount="indefinite"/>
+  </path>
+
+  <!-- Floor reflection and horizon, softened to avoid illustration look -->
+  <path d="M0 1015C520 970 992 960 1424 998C1774 1028 2100 1100 2400 1198V1350H0V1015Z" fill="#05070D" opacity="0.82"/>
+  <path d="M1942 1010L380 1268H2400L2040 1010H1942Z" fill="url(#floorLight)" filter="url(#mediumBlur)" opacity="0.62"/>
+  <path d="M0 1018C560 970 1034 966 1452 1004C1780 1034 2108 1100 2400 1198" stroke="#F97316" stroke-opacity="0.18" stroke-width="5" filter="url(#mediumBlur)"/>
+
+  <!-- Readability atmosphere for text area, no visible panel edge -->
+  <rect width="1320" height="1350" fill="url(#readFade)"/>
+  <path d="M0 0H910V1350H0V0Z" fill="#05070D" opacity="0.28"/>
+
+  <!-- Richness only: soft blooms, no figures, no hard architectural lines -->
+  <ellipse cx="1545" cy="635" rx="205" ry="150" fill="#FDE68A" opacity="0.09" filter="url(#softBlur)"/>
+  <ellipse cx="1260" cy="790" rx="520" ry="180" fill="#EA580C" opacity="0.08" filter="url(#softBlur)"/>
+  <ellipse cx="560" cy="560" rx="420" ry="320" fill="#2563EB" opacity="0.08" filter="url(#softBlur)"/>
+
+  <rect width="2400" height="1350" fill="url(#vignette)"/>
+  <rect width="2400" height="1350" filter="url(#grain)" opacity="0.48"/>
+  <rect width="2400" height="1350" fill="#05070D" opacity="0.05"/>
+</svg>

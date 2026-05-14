@@ -1,0 +1,592 @@
+﻿==============================
+FILE: src\app\login\page.tsx
+==============================
+import { redirect } from "next/navigation";
+
+export default function LoginPage() {
+  redirect("/?auth=login");
+}
+
+
+==============================
+FILE: src\middleware.ts
+==============================
+import { createServerClient } from "@supabase/ssr";
+import { NextResponse, type NextRequest } from "next/server";
+
+const PROTECTED_PATHS = ["/create", "/chat", "/conversations", "/outputs"];
+const PUBLIC_PATHS = ["/login", "/auth/confirm"];
+
+function isProtectedPath(pathname: string) {
+  return PROTECTED_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
+
+function isPublicPath(pathname: string) {
+  return PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
+
+function redirectToLogin(request: NextRequest, error?: string) {
+  const url = request.nextUrl.clone();
+  url.pathname = "/";
+  url.search = "";
+  url.searchParams.set("auth", "login");
+  if (error) {
+    url.searchParams.set("error", error);
+  }
+  return NextResponse.redirect(url);
+}
+
+function copyCookies(from: NextResponse, to: NextResponse) {
+  from.cookies.getAll().forEach((cookie) => {
+    to.cookies.set(cookie);
+  });
+}
+
+export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+  const protectedPath = isProtectedPath(pathname);
+
+  if (!protectedPath && isPublicPath(pathname)) {
+    return NextResponse.next({
+      request
+    });
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    return protectedPath ? redirectToLogin(request, "supabase_env_missing") : NextResponse.next({ request });
+  }
+
+  let supabaseResponse = NextResponse.next({
+    request
+  });
+
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
+    cookies: {
+      getAll() {
+        return request.cookies.getAll();
+      },
+      setAll(cookiesToSet) {
+        cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value));
+        supabaseResponse = NextResponse.next({
+          request
+        });
+        cookiesToSet.forEach(({ name, options, value }) => {
+          supabaseResponse.cookies.set(name, value, options);
+        });
+      }
+    }
+  });
+
+  const {
+    data: { user }
+  } = await supabase.auth.getUser();
+
+  if (protectedPath && !user) {
+    const redirectResponse = redirectToLogin(request);
+    copyCookies(supabaseResponse, redirectResponse);
+    return redirectResponse;
+  }
+
+  return supabaseResponse;
+}
+
+export const config = {
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"]
+};
+
+
+==============================
+FILE: src\lib\auth\sign-in-with-email-otp.ts
+==============================
+import type { AuthError } from "@supabase/supabase-js";
+import { getFriendlyAuthErrorMessage } from "@/lib/auth/auth-error-messages";
+
+export type EmailOtpSignInClient = {
+  auth: {
+    signInWithOtp(input: {
+      email: string;
+      options: {
+        shouldCreateUser: true;
+      };
+    }): Promise<{
+      error: AuthError | null;
+    }>;
+  };
+};
+
+export type EmailOtpSignInResult =
+  | {
+      ok: true;
+    }
+  | {
+      error: string;
+      ok: false;
+    };
+
+export function getAuthConfirmRedirectUrl(origin: string) {
+  return `${origin.replace(/\/$/, "")}/auth/confirm`;
+}
+
+export async function signInWithEmailOtp({
+  email,
+  origin,
+  supabase
+}: {
+  email: string;
+  origin: string;
+  supabase: EmailOtpSignInClient;
+}): Promise<EmailOtpSignInResult> {
+  const normalizedEmail = email.trim().toLowerCase();
+
+  if (!normalizedEmail) {
+    return {
+      error: "Enter your email address.",
+      ok: false
+    };
+  }
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email: normalizedEmail,
+    options: {
+      shouldCreateUser: true
+    }
+  });
+
+  if (error) {
+    return {
+      error: getFriendlyAuthErrorMessage(error.message),
+      ok: false
+    };
+  }
+
+  return {
+    ok: true
+  };
+}
+
+
+==============================
+FILE: src\lib\auth\sign-in-with-google-oauth.ts
+==============================
+import type { AuthError } from "@supabase/supabase-js";
+import { getFriendlyAuthErrorMessage } from "@/lib/auth/auth-error-messages";
+import { getAuthConfirmRedirectUrl } from "@/lib/auth/sign-in-with-email-otp";
+
+export type GoogleOAuthSignInClient = {
+  auth: {
+    signInWithOAuth(input: {
+      options: {
+        redirectTo: string;
+      };
+      provider: "google";
+    }): Promise<{
+      error: AuthError | null;
+    }>;
+  };
+};
+
+export type GoogleOAuthSignInResult =
+  | {
+      ok: true;
+    }
+  | {
+      error: string;
+      ok: false;
+    };
+
+export async function signInWithGoogleOAuth({
+  origin,
+  supabase
+}: {
+  origin: string;
+  supabase: GoogleOAuthSignInClient;
+}): Promise<GoogleOAuthSignInResult> {
+  const { error } = await supabase.auth.signInWithOAuth({
+    options: {
+      redirectTo: getAuthConfirmRedirectUrl(origin)
+    },
+    provider: "google"
+  });
+
+  if (error) {
+    return {
+      error: getFriendlyAuthErrorMessage(error.message),
+      ok: false
+    };
+  }
+
+  return {
+    ok: true
+  };
+}
+
+
+==============================
+FILE: src\lib\auth\get-current-user.ts
+==============================
+import type { User } from "@supabase/supabase-js";
+import type { UserProfileRow } from "@/lib/db/types";
+import { createClient } from "@/lib/supabase/server";
+
+export type CurrentUserResult =
+  | {
+      ok: true;
+      profile: UserProfileRow;
+      user: User;
+    }
+  | {
+      error: "not_authenticated" | "profile_not_found" | "profile_query_failed";
+      ok: false;
+      user?: User;
+    };
+
+export async function getCurrentUser(): Promise<CurrentUserResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+    error: userError
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    return {
+      error: "not_authenticated",
+      ok: false
+    };
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    return {
+      error: "profile_query_failed",
+      ok: false,
+      user
+    };
+  }
+
+  if (!profile) {
+    return {
+      error: "profile_not_found",
+      ok: false,
+      user
+    };
+  }
+
+  return {
+    ok: true,
+    profile,
+    user
+  };
+}
+
+
+==============================
+FILE: src\lib\auth\get-active-workspace.ts
+==============================
+import { cookies } from "next/headers";
+import type { User } from "@supabase/supabase-js";
+import type { UserProfileRow, WorkspaceMemberRow, WorkspaceRow } from "@/lib/db/types";
+import { getCurrentUser } from "@/lib/auth/get-current-user";
+import { createClient } from "@/lib/supabase/server";
+
+export const ACTIVE_WORKSPACE_COOKIE = "acd_active_workspace_id";
+
+export type ActiveWorkspaceResult =
+  | {
+      membership: WorkspaceMemberRow;
+      ok: true;
+      profile: UserProfileRow;
+      user: User;
+      workspace: WorkspaceRow;
+    }
+  | {
+      error:
+        | "not_authenticated"
+        | "profile_not_found"
+        | "profile_query_failed"
+        | "workspace_membership_not_found"
+        | "workspace_membership_query_failed"
+        | "workspace_not_found"
+        | "workspace_query_failed";
+      ok: false;
+      profile?: UserProfileRow;
+      user?: User;
+    };
+
+async function getMembershipForWorkspace(userId: string, workspaceId: string) {
+  const supabase = await createClient();
+
+  return supabase
+    .from("workspace_members")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+}
+
+async function getFirstMembership(userId: string) {
+  const supabase = await createClient();
+
+  return supabase
+    .from("workspace_members")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+}
+
+export async function getActiveWorkspace(): Promise<ActiveWorkspaceResult> {
+  const currentUser = await getCurrentUser();
+
+  if (!currentUser.ok) {
+    return currentUser;
+  }
+
+  const cookieStore = await cookies();
+  const requestedWorkspaceId = cookieStore.get(ACTIVE_WORKSPACE_COOKIE)?.value;
+
+  let membership: WorkspaceMemberRow | null = null;
+
+  if (requestedWorkspaceId) {
+    const { data, error } = await getMembershipForWorkspace(currentUser.profile.id, requestedWorkspaceId);
+
+    if (error) {
+      return {
+        error: "workspace_membership_query_failed",
+        ok: false,
+        profile: currentUser.profile,
+        user: currentUser.user
+      };
+    }
+
+    membership = data;
+  }
+
+  if (!membership) {
+    const { data, error } = await getFirstMembership(currentUser.profile.id);
+
+    if (error) {
+      return {
+        error: "workspace_membership_query_failed",
+        ok: false,
+        profile: currentUser.profile,
+        user: currentUser.user
+      };
+    }
+
+    membership = data;
+  }
+
+  if (!membership) {
+    return {
+      error: "workspace_membership_not_found",
+      ok: false,
+      profile: currentUser.profile,
+      user: currentUser.user
+    };
+  }
+
+  const supabase = await createClient();
+  const { data: workspace, error: workspaceError } = await supabase
+    .from("workspaces")
+    .select("*")
+    .eq("id", membership.workspace_id)
+    .maybeSingle();
+
+  if (workspaceError) {
+    return {
+      error: "workspace_query_failed",
+      ok: false,
+      profile: currentUser.profile,
+      user: currentUser.user
+    };
+  }
+
+  if (!workspace) {
+    return {
+      error: "workspace_not_found",
+      ok: false,
+      profile: currentUser.profile,
+      user: currentUser.user
+    };
+  }
+
+  return {
+    membership,
+    ok: true,
+    profile: currentUser.profile,
+    user: currentUser.user,
+    workspace
+  };
+}
+
+
+==============================
+FILE: src\lib\supabase\client.ts
+==============================
+"use client";
+
+import { createBrowserClient } from "@supabase/ssr";
+import type { Database } from "@/lib/db/types";
+import { getSupabasePublicEnv } from "@/lib/supabase/env";
+
+export function createClient() {
+  const { anonKey, url } = getSupabasePublicEnv();
+
+  return createBrowserClient<Database>(url, anonKey);
+}
+
+
+==============================
+FILE: src\lib\supabase\server.ts
+==============================
+import { createServerClient } from "@supabase/ssr";
+import { cookies } from "next/headers";
+import type { Database } from "@/lib/db/types";
+import { getSupabasePublicEnv } from "@/lib/supabase/env";
+
+export async function createClient() {
+  const { anonKey, url } = getSupabasePublicEnv();
+  const cookieStore = await cookies();
+
+  return createServerClient<Database>(url, anonKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(cookiesToSet) {
+        try {
+          cookiesToSet.forEach(({ name, options, value }) => {
+            cookieStore.set(name, value, options);
+          });
+        } catch {
+          // Server Components cannot set cookies directly. Auth middleware/proxy owns refresh behavior.
+        }
+      }
+    }
+  });
+}
+
+
+==============================
+FILE: supabase\migrations\20260512210500_create_ensure_user_onboarding_rpc.sql
+==============================
+-- Create an authenticated, idempotent onboarding RPC for Email OTP signup.
+-- This migration is intentionally local-only until applied to Supabase explicitly.
+
+create or replace function public.ensure_user_onboarding()
+returns table (
+  user_id uuid,
+  workspace_id uuid
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_user_id uuid := auth.uid();
+  v_workspace_id uuid;
+  v_full_name text;
+begin
+  if v_user_id is null then
+    raise exception 'Authentication required for onboarding'
+      using errcode = '28000';
+  end if;
+
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(v_user_id::text, 0));
+
+  select coalesce(
+    nullif(au.raw_user_meta_data ->> 'full_name', ''),
+    nullif(au.email, ''),
+    'New User'
+  )
+    into v_full_name
+  from auth.users as au
+  where au.id = v_user_id;
+
+  v_full_name := coalesce(v_full_name, 'New User');
+
+  insert into public.user_profiles (
+    id,
+    full_name,
+    default_language,
+    timezone,
+    role,
+    status
+  )
+  values (
+    v_user_id,
+    v_full_name,
+    'en',
+    'Africa/Cairo',
+    'user',
+    'active'
+  )
+  on conflict (id) do nothing;
+
+  select wm.workspace_id
+    into v_workspace_id
+  from public.workspace_members as wm
+  where wm.user_id = v_user_id
+  order by wm.created_at asc
+  limit 1;
+
+  if v_workspace_id is not null then
+    return query
+    select v_user_id, v_workspace_id;
+    return;
+  end if;
+
+  insert into public.workspaces (
+    name,
+    owner_id,
+    plan,
+    billing_status,
+    settings
+  )
+  values (
+    'My Workspace',
+    v_user_id,
+    'free',
+    'active',
+    '{}'::jsonb
+  )
+  returning id into v_workspace_id;
+
+  insert into public.workspace_members (
+    workspace_id,
+    user_id,
+    role,
+    permissions
+  )
+  values (
+    v_workspace_id,
+    v_user_id,
+    'owner',
+    '{"all": true}'::jsonb
+  )
+  on conflict (workspace_id, user_id) do update
+    set
+      role = excluded.role,
+      permissions = excluded.permissions,
+      updated_at = timezone('utc', now());
+
+  return query
+  select v_user_id, v_workspace_id;
+end;
+$$;
+
+revoke all on function public.ensure_user_onboarding() from public;
+revoke all on function public.ensure_user_onboarding() from anon;
+revoke all on function public.ensure_user_onboarding() from authenticated;
+grant execute on function public.ensure_user_onboarding() to authenticated;
+
+

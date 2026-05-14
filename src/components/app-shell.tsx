@@ -1,0 +1,941 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import type { Route } from "next";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import type { ChatApiResponse, ChatMessage, ConnectionStatus, JsonObject, JsonValue } from "@/lib/chat-types";
+import { createChatTitle, loadStoredChatSessions, saveStoredChatSessions, loadStoredProjects, saveStoredProjects, type StoredChatSession, type StoredProject } from "@/lib/chat-storage";
+import { cn, createClientId } from "@/lib/utils";
+import { ChatPanel } from "@/components/chat/chat-panel";
+import { Sidebar } from "@/components/workspace/sidebar";
+import { Topbar } from "@/components/workspace/topbar";
+import { NewProjectModal } from "@/components/workspace/new-project-modal";
+import { ProjectDashboard } from "@/components/workspace/project-dashboard";
+import { createClient } from "@/lib/supabase/client";
+import type { AppUser } from "@/lib/auth/app-user";
+
+const APP_SHELL_BASE_ROUTES = ["/chat", "/create", "/conversations", "/outputs"] as const;
+type AppShellBaseRoute = (typeof APP_SHELL_BASE_ROUTES)[number];
+
+type ConversationsApiResponse =
+  | {
+      ok: true;
+      sessions: StoredChatSession[];
+    }
+  | {
+      error: string;
+      ok: false;
+    };
+
+type ConversationMessagesApiResponse =
+  | {
+      messages: ChatMessage[];
+      ok: true;
+    }
+  | {
+      error: string;
+      ok: false;
+    };
+
+type GeneratedOutputData = {
+  avoid_constraints: string | null;
+  created_at: string;
+  final_prompt: string | null;
+  generation_metadata: JsonObject | null;
+  id: string;
+  output_type: string | null;
+  platform_parameters: JsonObject | null;
+  prompt_request_id: string;
+  quality_score: number | null;
+  status: string | null;
+  structured_output: JsonObject | null;
+  updated_at: string;
+  used_knowledge_blocks: JsonValue[] | null;
+  used_platform_rules: JsonObject | null;
+  used_prompt_rules: JsonValue[] | null;
+  validation_status: string | null;
+};
+
+type GeneratedOutputApiResponse =
+  | {
+      ok: true;
+      output: GeneratedOutputData;
+    }
+  | {
+      error: string;
+      ok: false;
+    };
+
+type CanonicalOutputResolutionRequest = {
+  conversationSessionId: string | null;
+  generatedOutputId: string | null;
+  messageText: string;
+  promptRequestId: string | null;
+  submittedAt: string;
+};
+
+const CANONICAL_OUTPUT_RETRY_DELAYS = [0, 1500, 3000, 5000, 8000, 12000] as const;
+
+function getAppShellBaseRoute(pathname: string): AppShellBaseRoute {
+  return APP_SHELL_BASE_ROUTES.includes(pathname as AppShellBaseRoute)
+    ? (pathname as AppShellBaseRoute)
+    : "/chat";
+}
+
+async function loadConversationSessionsFromApi(): Promise<StoredChatSession[] | null> {
+  try {
+    const response = await fetch("/api/conversations", {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      }
+    });
+    const result = (await response.json()) as ConversationsApiResponse;
+
+    if (!response.ok || !result.ok) {
+      return null;
+    }
+
+    return result.sessions;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchConversationMessages(sessionId: string): Promise<ChatMessage[]> {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(sessionId)}/messages`, {
+    method: "GET",
+    headers: {
+      Accept: "application/json"
+    }
+  });
+  const result = (await response.json()) as ConversationMessagesApiResponse;
+
+  if (!response.ok || !result.ok) {
+    throw new Error("conversation_messages_fetch_failed");
+  }
+
+  return result.messages;
+}
+
+async function resolveGeneratedOutputFromApi(
+  resolutionRequest: CanonicalOutputResolutionRequest
+): Promise<GeneratedOutputData | null> {
+  try {
+    const response = await fetch("/api/generated-outputs/resolve", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        conversation_session_id: resolutionRequest.conversationSessionId,
+        generated_output_id: resolutionRequest.generatedOutputId,
+        message_text: resolutionRequest.messageText,
+        prompt_request_id: resolutionRequest.promptRequestId,
+        submitted_at: resolutionRequest.submittedAt
+      })
+    });
+    const result = (await response.json()) as GeneratedOutputApiResponse;
+
+    if (!response.ok || !result.ok) {
+      return null;
+    }
+
+    return result.output;
+  } catch {
+    return null;
+  }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function resolveCanonicalGeneratedOutput(
+  resolutionRequest: CanonicalOutputResolutionRequest
+): Promise<GeneratedOutputData | null> {
+  if (
+    !resolutionRequest.generatedOutputId &&
+    !resolutionRequest.promptRequestId &&
+    !resolutionRequest.messageText.trim()
+  ) {
+    return null;
+  }
+
+  for (const retryDelay of CANONICAL_OUTPUT_RETRY_DELAYS) {
+    if (retryDelay > 0) {
+      await delay(retryDelay);
+    }
+
+    const output = await resolveGeneratedOutputFromApi(resolutionRequest);
+
+    if (output?.final_prompt) {
+      return output;
+    }
+  }
+
+  return null;
+}
+
+function enrichResponseWithGeneratedOutput(response: ChatApiResponse, output: GeneratedOutputData): ChatApiResponse {
+  return {
+    ...response,
+    generated_output_id: output.id,
+    prompt_request_id: output.prompt_request_id,
+    generated_prompt: output.final_prompt ?? response.generated_prompt,
+    avoid_constraints: output.avoid_constraints,
+    structured_output: output.structured_output,
+    used_knowledge_blocks: output.used_knowledge_blocks,
+    validation_status: output.validation_status,
+    status: output.status,
+    output_type: output.output_type
+  };
+}
+
+function getAssistantMessageContent(response: ChatApiResponse) {
+  if (!response.generated_prompt) {
+    return response.message_to_user;
+  }
+
+  const sections = [`Prompt:\n\n${response.generated_prompt}`];
+
+  if (response.avoid_constraints) {
+    sections.push(`Avoid:\n\n${response.avoid_constraints}`);
+  }
+
+  return sections.join("\n\n");
+}
+
+export function AppShell({ user }: { user: AppUser }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [generatingChatIds, setGeneratingChatIds] = useState<string[]>([]);
+  const [latestResponse, setLatestResponse] = useState<ChatApiResponse | null>(null);
+  const [conversationSessionId, setConversationSessionId] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("not_tested");
+  const [composerValue, setComposerValue] = useState("");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [chatSessions, setChatSessions] = useState<StoredChatSession[]>([]);
+  const [projects, setProjects] = useState<StoredProject[]>([]);
+  const [activeChatId, setActiveChatId] = useState<string | null>(null);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [showProjectDashboard, setShowProjectDashboard] = useState(false);
+  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [isTemporaryChat, setIsTemporaryChat] = useState(false);
+  
+  const activeChatIdRef = useRef<string | null>(null);
+  const chatSessionsRef = useRef<StoredChatSession[]>([]);
+
+  useEffect(() => {
+    activeChatIdRef.current = activeChatId;
+  }, [activeChatId]);
+
+  useEffect(() => {
+    chatSessionsRef.current = chatSessions;
+  }, [chatSessions]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setProjects(loadStoredProjects());
+
+    async function loadInitialState() {
+      const apiSessions = await loadConversationSessionsFromApi();
+      const loadedChats = apiSessions ?? loadStoredChatSessions();
+
+      if (cancelled) return;
+
+      chatSessionsRef.current = loadedChats;
+      setChatSessions(loadedChats);
+
+      if (apiSessions) {
+        saveStoredChatSessions(apiSessions);
+      }
+
+      setIsLoaded(true);
+    }
+
+    void loadInitialState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Sync URL to State
+  useEffect(() => {
+    if (!isLoaded) return;
+    
+      const urlChat = searchParams.get("chat");
+      const urlProject = searchParams.get("project");
+      const urlTemporaryChat = searchParams.get("temporary-chat") === "true";
+
+      if (urlTemporaryChat) {
+        setIsTemporaryChat(true);
+        if (!activeChatId && !activeProjectId) {
+          return;
+        }
+        clearChatView({ keepProject: false });
+        return;
+      }
+
+      setIsTemporaryChat(false);
+
+    if (urlChat && urlChat !== activeChatId) {
+      const session = chatSessionsRef.current.find(
+        (s) => s.id === urlChat || s.conversationSessionId === urlChat
+      );
+      if (session) {
+        void selectChatSession(session.id, { updateRoute: false });
+      } else {
+        clearChatView({ keepProject: false });
+        updateUrl(null, null);
+      }
+    } else if (urlProject && urlProject !== activeProjectId && !urlChat) {
+      setActiveProjectId(urlProject);
+      setActiveChatId(null);
+      activeChatIdRef.current = null;
+      setMessages([]);
+      setConversationSessionId(null);
+      setLatestResponse(null);
+      setConnectionStatus("not_tested");
+      setShowProjectDashboard(true);
+    } else if (!urlChat && !urlProject && (activeChatId || activeProjectId)) {
+      clearChatView({ keepProject: false });
+    }
+  }, [isLoaded, searchParams, chatSessions.length, activeChatId, activeProjectId]); // Re-run when sessions load
+
+  function updateUrl(chat: string | null, project: string | null, temporaryChat = isTemporaryChat) {
+    const params = new URLSearchParams();
+    if (temporaryChat) {
+      params.set("temporary-chat", "true");
+    } else {
+      if (chat) params.set("chat", chat);
+      if (project) params.set("project", project);
+    }
+
+    const query = params.toString();
+    const basePath = getAppShellBaseRoute(pathname);
+    const destination = query ? `${basePath}?${query}` : basePath;
+
+    router.push(destination as Route);
+  }
+
+  function persistSessions(nextSessions: StoredChatSession[]) {
+    const sortedSessions = [...nextSessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    chatSessionsRef.current = sortedSessions;
+    setChatSessions(sortedSessions);
+    saveStoredChatSessions(sortedSessions);
+  }
+
+  function sessionsMatch(
+    session: StoredChatSession,
+    chatId: string | null,
+    conversationId: string | null
+  ) {
+    return (
+      (Boolean(chatId) && session.id === chatId) ||
+      (Boolean(chatId) && session.conversationSessionId === chatId) ||
+      (Boolean(conversationId) && session.id === conversationId) ||
+      (Boolean(conversationId) && session.conversationSessionId === conversationId)
+    );
+  }
+
+  function clearChatView({ keepProject }: { keepProject: boolean }) {
+    activeChatIdRef.current = null;
+    setActiveChatId(null);
+    if (!keepProject) {
+      setActiveProjectId(null);
+    }
+    setMessages([]);
+    setConversationSessionId(null);
+    setLatestResponse(null);
+    setConnectionStatus("not_tested");
+    setShowProjectDashboard(false);
+    setComposerValue("");
+  }
+
+  function startNewChat() {
+    if (isTemporaryChat) {
+      clearChatView({ keepProject: false });
+      updateUrl(null, null, true);
+      return;
+    }
+
+    const projectId = activeProjectId;
+    clearChatView({ keepProject: true });
+    setActiveProjectId(projectId);
+    updateUrl(null, projectId, false);
+  }
+
+  function toggleTemporaryChat() {
+    const nextTemporaryState = !isTemporaryChat;
+    setIsTemporaryChat(nextTemporaryState);
+    clearChatView({ keepProject: false });
+    updateUrl(null, null, nextTemporaryState);
+  }
+
+  async function handleSignOut() {
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } finally {
+      window.location.assign("/");
+    }
+  }
+
+  function handleCreateProject(name: string, instructions: string) {
+    const now = new Date().toISOString();
+    const newProject: StoredProject = {
+      id: createClientId("proj"),
+      name,
+      instructions,
+      createdAt: now,
+      updatedAt: now
+    };
+    const nextProjects = [newProject, ...projects];
+    setProjects(nextProjects);
+    saveStoredProjects(nextProjects);
+    setActiveProjectId(newProject.id);
+    setIsProjectModalOpen(false);
+    setShowProjectDashboard(true);
+    setActiveChatId(null);
+    activeChatIdRef.current = null;
+    
+    updateUrl(null, newProject.id);
+  }
+
+  function updateSession(session: StoredChatSession) {
+    const currentSessions = chatSessionsRef.current;
+    const withoutCurrent = currentSessions.filter((item) => !sessionsMatch(item, session.id, session.conversationSessionId));
+    persistSessions([session, ...withoutCurrent]);
+  }
+
+  async function selectChatSession(sessionId: string, options: { updateRoute?: boolean } = {}) {
+    const session = chatSessionsRef.current.find((s) => s.id === sessionId);
+    if (!session) return;
+
+    const shouldUpdateRoute = options.updateRoute ?? true;
+    const messageSessionId = session.conversationSessionId ?? session.id;
+
+    activeChatIdRef.current = sessionId;
+    setIsTemporaryChat(false);
+    setActiveChatId(sessionId);
+    setActiveProjectId(session.projectId);
+    setShowProjectDashboard(false);
+    setMessages(session.messages);
+    setConversationSessionId(session.conversationSessionId);
+    setLatestResponse(session.latestResponse);
+    setConnectionStatus(session.latestResponse ? (session.latestResponse.ok ? "connected" : "error") : "not_tested");
+    setComposerValue("");
+
+    if (shouldUpdateRoute) {
+      updateUrl(sessionId, session.projectId, false);
+    }
+
+    try {
+      const fetchedMessages = await fetchConversationMessages(messageSessionId);
+      const currentSessions = chatSessionsRef.current;
+      const currentSession = currentSessions.find((item) => item.id === sessionId);
+
+      if (currentSession) {
+        updateSession({
+          ...currentSession,
+          messages: fetchedMessages,
+          latestResponse: null
+        });
+      }
+
+      if (activeChatIdRef.current === sessionId) {
+        setMessages(fetchedMessages);
+        setLatestResponse(null);
+        setConnectionStatus("not_tested");
+      }
+    } catch {
+      if (activeChatIdRef.current === sessionId) {
+        setMessages([
+          {
+            id: createClientId("error"),
+            role: "error",
+            content: "Could not load this conversation from Supabase.",
+            createdAt: new Date().toISOString()
+          }
+        ]);
+      }
+    }
+  }
+
+  function handleDeleteChat(chatId: string) {
+    const next = chatSessionsRef.current.filter((session) => !sessionsMatch(session, chatId, chatId));
+    persistSessions(next);
+    if (activeChatId === chatId) {
+      if (activeProjectId) {
+        clearChatView({ keepProject: true });
+        setShowProjectDashboard(true);
+        updateUrl(null, activeProjectId);
+      } else {
+        clearChatView({ keepProject: false });
+        updateUrl(null, null);
+      }
+    }
+  }
+
+  function handleRenameChat(chatId: string, newTitle: string) {
+    const trimmedTitle = newTitle.trim();
+    if (!trimmedTitle) return;
+    const next = chatSessionsRef.current.map((session) =>
+      sessionsMatch(session, chatId, chatId)
+        ? { ...session, title: trimmedTitle, updatedAt: new Date().toISOString() }
+        : session
+    );
+    persistSessions(next);
+  }
+
+  function handleMoveChat(chatId: string, newProjectId: string | null) {
+    const next = chatSessionsRef.current.map((session) =>
+      sessionsMatch(session, chatId, chatId)
+        ? { ...session, projectId: newProjectId, updatedAt: new Date().toISOString() }
+        : session
+    );
+    persistSessions(next);
+  }
+
+  function handleTogglePinChat(chatId: string) {
+    const next = chatSessionsRef.current.map((session) =>
+      sessionsMatch(session, chatId, chatId)
+        ? { ...session, isPinned: !session.isPinned, updatedAt: new Date().toISOString() }
+        : session
+    );
+    persistSessions(next);
+  }
+
+  function handleToggleArchiveChat(chatId: string) {
+    const next = chatSessionsRef.current.map((session) =>
+      sessionsMatch(session, chatId, chatId)
+        ? { ...session, isArchived: !session.isArchived, updatedAt: new Date().toISOString() }
+        : session
+    );
+    persistSessions(next);
+    // If we just archived the active chat, clear chat view
+    if (activeChatId === chatId) {
+      clearChatView({ keepProject: true });
+      if (activeProjectId) {
+        setShowProjectDashboard(true);
+        updateUrl(null, activeProjectId);
+      } else {
+        updateUrl(null, null);
+      }
+    }
+  }
+
+  function upsertChatSession({
+    chatId,
+    nextConversationSessionId,
+    nextLatestResponse,
+    nextMessages,
+    titleSource
+  }: {
+    chatId: string;
+    nextConversationSessionId: string | null;
+    nextLatestResponse: ChatApiResponse | null;
+    nextMessages: ChatMessage[];
+    titleSource?: string;
+  }) {
+    const now = new Date().toISOString();
+    const id = nextConversationSessionId ?? chatId;
+    const currentSessions = chatSessionsRef.current;
+    const existingSession = currentSessions.find((session) =>
+      sessionsMatch(session, chatId, nextConversationSessionId)
+    );
+    const title = existingSession?.title && !["New chat", "New brief"].includes(existingSession.title) ? existingSession.title : createChatTitle(titleSource ?? "");
+    const nextSession: StoredChatSession = {
+      id,
+      title,
+      createdAt: existingSession?.createdAt ?? now,
+      updatedAt: now,
+      conversationSessionId: nextConversationSessionId,
+      messages: nextMessages,
+      latestResponse: nextLatestResponse,
+      projectId: existingSession?.projectId ?? activeProjectId,
+      isPinned: existingSession?.isPinned,
+      isArchived: existingSession?.isArchived,
+      isTemporary: isTemporaryChat,
+      temporaryExpiresAt: isTemporaryChat ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null
+    };
+
+    if (isTemporaryChat) {
+      if (activeChatIdRef.current === chatId || activeChatIdRef.current === nextConversationSessionId) {
+        activeChatIdRef.current = id;
+        setActiveChatId(id);
+        updateUrl(null, null, true);
+      }
+      return nextSession;
+    }
+
+    updateSession(nextSession);
+
+    if (activeChatIdRef.current === chatId || activeChatIdRef.current === nextConversationSessionId) {
+      activeChatIdRef.current = id;
+      setActiveChatId(id);
+      if (id !== chatId) {
+        updateUrl(id, nextSession.projectId ?? activeProjectId, false);
+      }
+    }
+
+    return nextSession;
+  }
+
+  async function reconcileAssistantMessageWithCanonicalOutput({
+    assistantMessageId,
+    chatId,
+    conversationSessionId: targetConversationSessionId,
+    response,
+    messageText,
+    submittedAt
+  }: {
+    assistantMessageId: string;
+    chatId: string;
+    conversationSessionId: string | null;
+    response: ChatApiResponse;
+    messageText: string;
+    submittedAt: string;
+  }) {
+    const generatedOutput = await resolveCanonicalGeneratedOutput({
+      conversationSessionId: targetConversationSessionId,
+      generatedOutputId: response.generated_output_id,
+      messageText,
+      promptRequestId: response.prompt_request_id,
+      submittedAt
+    });
+
+    if (!generatedOutput?.final_prompt) {
+      return;
+    }
+
+    const enrichedResponse = enrichResponseWithGeneratedOutput(response, generatedOutput);
+    const assistantContent = getAssistantMessageContent(enrichedResponse);
+
+    if (!assistantContent) {
+      return;
+    }
+
+    const currentSession = chatSessionsRef.current.find(
+      (session) => sessionsMatch(session, chatId, targetConversationSessionId)
+    );
+
+    if (!currentSession) {
+      return;
+    }
+
+    const nextMessages = currentSession.messages.map((message) =>
+      message.id === assistantMessageId
+        ? {
+            ...message,
+            animate: sessionsMatch(currentSession, activeChatIdRef.current, targetConversationSessionId),
+            content: assistantContent,
+            response: enrichedResponse
+          }
+        : message
+    );
+
+    const assistantMessageWasUpdated = nextMessages.some(
+      (message) => message.id === assistantMessageId && message.response?.generated_output_id === generatedOutput.id
+    );
+
+    if (!assistantMessageWasUpdated) {
+      return;
+    }
+
+    upsertChatSession({
+      chatId,
+      nextConversationSessionId: targetConversationSessionId,
+      nextLatestResponse: enrichedResponse,
+      nextMessages,
+      titleSource: messageText
+    });
+
+    if (activeChatIdRef.current === chatId || activeChatIdRef.current === targetConversationSessionId) {
+      setMessages(nextMessages);
+      setLatestResponse(enrichedResponse);
+      setConversationSessionId(targetConversationSessionId);
+      setConnectionStatus(enrichedResponse.ok ? "connected" : "error");
+    }
+  }
+
+  async function submitMessage(message: string) {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    const now = new Date().toISOString();
+    const requestChatId = activeChatId ?? createClientId("chat");
+    const requestConversationSessionId = conversationSessionId;
+    const baseSession =
+      chatSessionsRef.current.find((session) => session.id === requestChatId) ??
+      ({
+        id: requestChatId,
+        title: createChatTitle(trimmed),
+        createdAt: now,
+        updatedAt: now,
+        conversationSessionId: requestConversationSessionId,
+        messages: [],
+        latestResponse: null,
+        projectId: activeProjectId
+      } satisfies StoredChatSession);
+
+    const userMessage: ChatMessage = {
+      id: createClientId("user"),
+      role: "user",
+      content: trimmed,
+      createdAt: new Date().toISOString()
+    };
+
+    const messagesWithUser = [...baseSession.messages, userMessage];
+    if (!activeChatId) {
+      activeChatIdRef.current = requestChatId;
+      setActiveChatId(requestChatId);
+    }
+    setMessages(messagesWithUser);
+    upsertChatSession({
+      chatId: requestChatId,
+      nextConversationSessionId: requestConversationSessionId,
+      nextLatestResponse: baseSession.latestResponse,
+      nextMessages: messagesWithUser,
+      titleSource: trimmed
+    });
+    setGeneratingChatIds((current) => (current.includes(requestChatId) ? current : [...current, requestChatId]));
+
+    try {
+      const response = await fetch("/api/chat/intake", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          message_text: trimmed,
+          conversation_session_id: requestConversationSessionId,
+          is_temporary: isTemporaryChat
+        })
+      });
+
+      const data = (await response.json()) as ChatApiResponse;
+      const assistantContent = getAssistantMessageContent(data);
+      const nextConversationSessionId = data.conversation_session_id ?? requestConversationSessionId;
+      const nextConnectionStatus = response.ok && data.ok ? "connected" : "error";
+      const latestRequestSession =
+        chatSessionsRef.current.find((session) => sessionsMatch(session, requestChatId, nextConversationSessionId)) ??
+        (isTemporaryChat ? { ...baseSession, messages: messagesWithUser } : baseSession);
+
+      if (assistantContent) {
+        const assistantMessageId = createClientId("assistant");
+        const messagesWithAssistant: ChatMessage[] = [
+          ...latestRequestSession.messages,
+          {
+            id: assistantMessageId,
+            animate: activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId,
+            role: "assistant",
+            content: assistantContent,
+            createdAt: new Date().toISOString(),
+            response: data
+          }
+        ];
+        if (activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId) {
+          setMessages(messagesWithAssistant);
+          setLatestResponse(data);
+          setConversationSessionId(nextConversationSessionId);
+          setConnectionStatus(nextConnectionStatus);
+        }
+        upsertChatSession({
+          chatId: requestChatId,
+          nextConversationSessionId,
+          nextLatestResponse: data,
+          nextMessages: messagesWithAssistant,
+          titleSource: trimmed
+        });
+
+        void reconcileAssistantMessageWithCanonicalOutput({
+          assistantMessageId,
+          chatId: requestChatId,
+          conversationSessionId: nextConversationSessionId,
+          response: data,
+          messageText: trimmed,
+          submittedAt: now
+        });
+      } else if (data.errors.length > 0) {
+        const messagesWithError: ChatMessage[] = [
+          ...latestRequestSession.messages,
+          {
+            id: createClientId("error"),
+            role: "error",
+          content: "Rune could not complete this request. Try rephrasing your message or start a new chat.",
+            createdAt: new Date().toISOString(),
+            response: data
+          }
+        ];
+        if (activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId) {
+          setMessages(messagesWithError);
+          setLatestResponse(data);
+          setConversationSessionId(nextConversationSessionId);
+          setConnectionStatus(nextConnectionStatus);
+        }
+        upsertChatSession({
+          chatId: requestChatId,
+          nextConversationSessionId,
+          nextLatestResponse: data,
+          nextMessages: messagesWithError,
+          titleSource: trimmed
+        });
+      } else {
+        if (activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId) {
+          setLatestResponse(data);
+          setConversationSessionId(nextConversationSessionId);
+          setConnectionStatus(nextConnectionStatus);
+        }
+        upsertChatSession({
+          chatId: requestChatId,
+          nextConversationSessionId,
+          nextLatestResponse: data,
+          nextMessages: latestRequestSession.messages,
+          titleSource: trimmed
+        });
+      }
+    } catch {
+      const failedResponse: ChatApiResponse = {
+        ok: false,
+        message_to_user: null,
+        conversation_session_id: requestConversationSessionId,
+        prompt_request_id: null,
+        generated_output_id: null,
+        wf10_status: null,
+        output_type: null,
+        platform: null,
+        generation_layer: null,
+        next_workflow: null,
+        generated_prompt: null,
+        avoid_constraints: null,
+        structured_output: null,
+        used_knowledge_blocks: null,
+        validation_status: null,
+        status: null,
+        errors: ["frontend_request_failed"],
+        raw: {}
+      };
+
+      const failedMessages: ChatMessage[] = [
+        ...(chatSessionsRef.current.find((session) => session.id === requestChatId)?.messages ?? messagesWithUser),
+        {
+          id: createClientId("error"),
+          role: "error",
+          content: "The frontend could not reach the intake API route.",
+          createdAt: new Date().toISOString(),
+          response: failedResponse
+        }
+      ];
+      if (activeChatIdRef.current === requestChatId) {
+        setMessages(failedMessages);
+        setLatestResponse(failedResponse);
+        setConnectionStatus("error");
+      }
+      upsertChatSession({
+        chatId: requestChatId,
+        nextConversationSessionId: requestConversationSessionId,
+        nextLatestResponse: failedResponse,
+        nextMessages: failedMessages,
+        titleSource: trimmed
+      });
+    } finally {
+      setGeneratingChatIds((current) => current.filter((chatId) => chatId !== requestChatId));
+    }
+  }
+
+  // Determine what view to show
+  const activeSession = activeChatId ? chatSessions.find((session) => session.id === activeChatId) : null;
+  const activeProject = activeProjectId ? projects.find(p => p.id === activeProjectId) : null;
+  const shouldShowDashboard = showProjectDashboard && activeProject && !activeChatId;
+  const topbarProjectName = activeSession?.projectId
+    ? projects.find((project) => project.id === activeSession.projectId)?.name
+    : undefined;
+
+  return (
+    <div className="min-h-screen overflow-hidden bg-[#212121] text-zinc-100">
+      <div className="pointer-events-none fixed inset-0 bg-[#212121]" />
+      <div className="relative flex min-h-screen">
+        <Sidebar
+          activeChatId={activeChatId}
+          activeProjectId={activeProjectId}
+          chatSessions={chatSessions}
+          projects={projects}
+          collapsed={sidebarCollapsed}
+          onExpand={() => setSidebarCollapsed(false)}
+          onNewPrompt={startNewChat}
+          onSelectChat={selectChatSession}
+          onSetComposerValue={setComposerValue}
+          onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+          onNewProject={() => setIsProjectModalOpen(true)}
+          onSelectProject={(id) => {
+            activeChatIdRef.current = null;
+            setActiveProjectId(id);
+            setActiveChatId(null);
+            setMessages([]);
+            setConversationSessionId(null);
+            setLatestResponse(null);
+            setConnectionStatus("not_tested");
+            setComposerValue("");
+            setShowProjectDashboard(true);
+            updateUrl(null, id);
+          }}
+          onSelectHome={() => {
+            clearChatView({ keepProject: false });
+            updateUrl(null, null);
+          }}
+          onDeleteChat={handleDeleteChat}
+          onRenameChat={handleRenameChat}
+          onMoveChat={handleMoveChat}
+          onTogglePinChat={handleTogglePinChat}
+          onToggleArchiveChat={handleToggleArchiveChat}
+          user={user}
+          onSignOut={() => void handleSignOut()}
+        />
+
+        <main
+          className={cn(
+            "flex h-dvh min-w-0 flex-1 flex-col transition-[margin-left] duration-200 ease-out lg:ml-[272px]",
+            sidebarCollapsed && "lg:ml-0"
+          )}
+        >
+          <Topbar
+            activeProjectName={topbarProjectName}
+            onNewPrompt={startNewChat}
+            showProjectCrumb={Boolean(activeSession?.projectId)}
+          />
+          
+          {shouldShowDashboard ? (
+            <ProjectDashboard 
+              project={activeProject!}
+              chats={chatSessions.filter(c => c.projectId === activeProjectId && !c.isArchived)}
+              onSelectChat={selectChatSession}
+              onNewChat={startNewChat}
+            />
+          ) : (
+            <ChatPanel
+              messages={messages}
+              loading={activeChatId ? generatingChatIds.includes(activeChatId) : false}
+              composerValue={composerValue}
+              onComposerChange={setComposerValue}
+              onSubmit={submitMessage}
+            />
+          )}
+        </main>
+      </div>
+
+      <NewProjectModal
+        isOpen={isProjectModalOpen}
+        onClose={() => setIsProjectModalOpen(false)}
+        onSubmit={handleCreateProject}
+      />
+    </div>
+  );
+}
