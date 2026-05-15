@@ -27,6 +27,9 @@ pnpm-debug.log*
 /*_report.txt
 /create_redirect_search.txt
 
+# generated database types
+src/lib/db/database.generated.ts
+
 # editor / OS
 .DS_Store
 Thumbs.db
