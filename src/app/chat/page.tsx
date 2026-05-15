@@ -7,6 +7,8 @@ import { ACTIVE_WORKSPACE_COOKIE } from "@/lib/auth/get-active-workspace";
 import { getAppUser } from "@/lib/auth/app-user";
 import { createClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 export default async function ChatPage() {
   const supabase = await createClient();
   const {

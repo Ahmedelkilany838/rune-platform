@@ -5,5 +5,11 @@ export const APP_CONFIG = {
   uiVersion: "phase_1_chat",
   metadataSource: "rune_frontend",
   maxMessageCharacters: 12000,
+  promptOutputContract: {
+    minimumPromptWords: 300,
+    requireDetailedVisualSpecificity: true,
+    requireAvoidConstraints: true,
+    requirePlatformParameters: true
+  },
   webhookTimeoutMs: 120000
 } as const;
