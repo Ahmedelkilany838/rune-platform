@@ -11,13 +11,13 @@ vi.mock("@supabase/ssr", () => ({
   }))
 }));
 
-import { middleware } from "@/middleware";
+import { proxy } from "@/proxy";
 
 function request(pathname: string) {
   return new NextRequest(new URL(`http://localhost:3000${pathname}`));
 }
 
-describe("middleware", () => {
+describe("proxy", () => {
   afterEach(() => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
     delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -33,14 +33,14 @@ describe("middleware", () => {
       }
     });
 
-    const response = await middleware(request("/create"));
+    const response = await proxy(request("/create"));
 
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe("http://localhost:3000/?auth=login");
   });
 
   it("allows public login route without checking Supabase", async () => {
-    const response = await middleware(request("/login"));
+    const response = await proxy(request("/login"));
 
     expect(response.status).toBe(200);
     expect(getUserMock).not.toHaveBeenCalled();
