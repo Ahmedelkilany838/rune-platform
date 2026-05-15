@@ -164,6 +164,20 @@ function getAssistantMessageContent(response: ChatApiResponse) {
   return sections.join("\n\n");
 }
 
+async function resolveFinalAssistantResponse({ response, messageText, submittedAt }: { response: ChatApiResponse; messageText: string; submittedAt: string }) {
+  if (!response.ok) return response;
+
+  const output = await resolveCanonicalGeneratedOutput({
+    conversationSessionId: response.conversation_session_id,
+    generatedOutputId: response.generated_output_id,
+    messageText,
+    promptRequestId: response.prompt_request_id,
+    submittedAt
+  });
+
+  return output?.final_prompt ? enrichResponseWithGeneratedOutput(response, output) : response;
+}
+
 export function AppShell({ user }: { user: AppUser }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -416,25 +430,6 @@ export function AppShell({ user }: { user: AppUser }) {
     return nextSession;
   }
 
-  async function reconcileAssistantMessageWithCanonicalOutput({ assistantMessageId, chatId, conversationSessionId: targetConversationSessionId, response, messageText, submittedAt }: { assistantMessageId: string; chatId: string; conversationSessionId: string | null; response: ChatApiResponse; messageText: string; submittedAt: string }) {
-    const generatedOutput = await resolveCanonicalGeneratedOutput({ conversationSessionId: targetConversationSessionId, generatedOutputId: response.generated_output_id, messageText, promptRequestId: response.prompt_request_id, submittedAt });
-    if (!generatedOutput?.final_prompt) return;
-    const enrichedResponse = enrichResponseWithGeneratedOutput(response, generatedOutput);
-    const assistantContent = getAssistantMessageContent(enrichedResponse);
-    if (!assistantContent) return;
-    const currentSession = chatSessionsRef.current.find((session) => sessionsMatch(session, chatId, targetConversationSessionId));
-    if (!currentSession) return;
-    const nextMessages = currentSession.messages.map((message) => (message.id === assistantMessageId ? { ...message, animate: sessionsMatch(currentSession, activeChatIdRef.current, targetConversationSessionId), content: assistantContent, response: enrichedResponse } : message));
-    if (!nextMessages.some((message) => message.id === assistantMessageId && message.response?.generated_output_id === generatedOutput.id)) return;
-    upsertChatSession({ chatId, nextConversationSessionId: targetConversationSessionId, nextLatestResponse: enrichedResponse, nextMessages, titleSource: messageText });
-    if (activeChatIdRef.current === chatId || activeChatIdRef.current === targetConversationSessionId) {
-      setMessages(nextMessages);
-      setLatestResponse(enrichedResponse);
-      setConversationSessionId(targetConversationSessionId);
-      setConnectionStatus(enrichedResponse.ok ? "connected" : "error");
-    }
-  }
-
   async function submitMessage(message: string) {
     const trimmed = message.trim();
     if (!trimmed) return;
@@ -454,37 +449,37 @@ export function AppShell({ user }: { user: AppUser }) {
     try {
       const response = await fetch("/api/chat/intake", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message_text: trimmed, conversation_session_id: requestConversationSessionId, project_id: activeProjectId, is_temporary: isTemporaryChat }) });
       const data = (await response.json()) as ChatApiResponse;
-      const assistantContent = getAssistantMessageContent(data);
       const nextConversationSessionId = data.conversation_session_id ?? requestConversationSessionId;
       const nextConnectionStatus = response.ok && data.ok ? "connected" : "error";
       const latestRequestSession = chatSessionsRef.current.find((session) => sessionsMatch(session, requestChatId, nextConversationSessionId)) ?? (isTemporaryChat ? { ...baseSession, messages: messagesWithUser } : baseSession);
+      const finalResponse = await resolveFinalAssistantResponse({ response: data, messageText: trimmed, submittedAt: now });
+      const assistantContent = getAssistantMessageContent(finalResponse);
+
       if (assistantContent) {
-        const assistantMessageId = createClientId("assistant");
-        const messagesWithAssistant: ChatMessage[] = [...latestRequestSession.messages, { id: assistantMessageId, animate: activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId, role: "assistant", content: assistantContent, createdAt: new Date().toISOString(), response: data }];
+        const messagesWithAssistant: ChatMessage[] = [...latestRequestSession.messages, { id: createClientId("assistant"), animate: activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId, role: "assistant", content: assistantContent, createdAt: new Date().toISOString(), response: finalResponse }];
         if (activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId) {
           setMessages(messagesWithAssistant);
-          setLatestResponse(data);
+          setLatestResponse(finalResponse);
           setConversationSessionId(nextConversationSessionId);
           setConnectionStatus(nextConnectionStatus);
         }
-        upsertChatSession({ chatId: requestChatId, nextConversationSessionId, nextLatestResponse: data, nextMessages: messagesWithAssistant, titleSource: trimmed });
-        void reconcileAssistantMessageWithCanonicalOutput({ assistantMessageId, chatId: requestChatId, conversationSessionId: nextConversationSessionId, response: data, messageText: trimmed, submittedAt: now });
-      } else if (data.errors.length > 0) {
-        const messagesWithError: ChatMessage[] = [...latestRequestSession.messages, { id: createClientId("error"), role: "error", content: "Rune could not complete this request. Try rephrasing your message or start a new chat.", createdAt: new Date().toISOString(), response: data }];
+        upsertChatSession({ chatId: requestChatId, nextConversationSessionId, nextLatestResponse: finalResponse, nextMessages: messagesWithAssistant, titleSource: trimmed });
+      } else if (finalResponse.errors.length > 0) {
+        const messagesWithError: ChatMessage[] = [...latestRequestSession.messages, { id: createClientId("error"), role: "error", content: "Rune could not complete this request. Try rephrasing your message or start a new chat.", createdAt: new Date().toISOString(), response: finalResponse }];
         if (activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId) {
           setMessages(messagesWithError);
-          setLatestResponse(data);
+          setLatestResponse(finalResponse);
           setConversationSessionId(nextConversationSessionId);
           setConnectionStatus(nextConnectionStatus);
         }
-        upsertChatSession({ chatId: requestChatId, nextConversationSessionId, nextLatestResponse: data, nextMessages: messagesWithError, titleSource: trimmed });
+        upsertChatSession({ chatId: requestChatId, nextConversationSessionId, nextLatestResponse: finalResponse, nextMessages: messagesWithError, titleSource: trimmed });
       } else {
         if (activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId) {
-          setLatestResponse(data);
+          setLatestResponse(finalResponse);
           setConversationSessionId(nextConversationSessionId);
           setConnectionStatus(nextConnectionStatus);
         }
-        upsertChatSession({ chatId: requestChatId, nextConversationSessionId, nextLatestResponse: data, nextMessages: latestRequestSession.messages, titleSource: trimmed });
+        upsertChatSession({ chatId: requestChatId, nextConversationSessionId, nextLatestResponse: finalResponse, nextMessages: latestRequestSession.messages, titleSource: trimmed });
       }
     } catch {
       const failedResponse: ChatApiResponse = { ok: false, message_to_user: null, conversation_session_id: requestConversationSessionId, prompt_request_id: null, generated_output_id: null, wf10_status: null, output_type: null, platform: null, generation_layer: null, next_workflow: null, generated_prompt: null, avoid_constraints: null, structured_output: null, used_knowledge_blocks: null, validation_status: null, status: null, errors: ["frontend_request_failed"], raw: {} };
