@@ -70,6 +70,19 @@ function hasNonEmptyJsonObject(value: unknown) {
   return isJsonObject(value) && Object.keys(value).length > 0;
 }
 
+function getPromptOutputContractSnapshot(): JsonObject {
+  return {
+    appliesTo: APP_CONFIG.promptOutputContract.appliesTo,
+    minimumFinalPromptWords: APP_CONFIG.promptOutputContract.minimumFinalPromptWords,
+    minimumPromptWords: APP_CONFIG.promptOutputContract.minimumPromptWords,
+    requireDomainCoverage: APP_CONFIG.promptOutputContract.requireDomainCoverage,
+    requiredVisualDomains: [...APP_CONFIG.promptOutputContract.requiredVisualDomains],
+    requireDetailedVisualSpecificity: APP_CONFIG.promptOutputContract.requireDetailedVisualSpecificity,
+    requireAvoidConstraints: APP_CONFIG.promptOutputContract.requireAvoidConstraints,
+    requirePlatformParameters: APP_CONFIG.promptOutputContract.requirePlatformParameters
+  };
+}
+
 function getCoveredVisualDomains(finalPrompt: string | null) {
   const prompt = finalPrompt ?? "";
   return APP_CONFIG.promptOutputContract.requiredVisualDomains.filter((domain) => {
@@ -101,7 +114,7 @@ function buildOutputValidationSnapshot(output: GeneratedOutputLike) {
   return {
     applies_to: APP_CONFIG.promptOutputContract.appliesTo,
     checked_at: new Date().toISOString(),
-    contract: APP_CONFIG.promptOutputContract,
+    contract: getPromptOutputContractSnapshot(),
     covered_visual_domains: coveredVisualDomains,
     final_prompt_word_count: finalPromptWordCount,
     has_avoid_constraints: hasAvoidConstraints,
@@ -175,7 +188,7 @@ export async function persistWorkflowContextSnapshot({
         ...existingContext,
         conversation_session_id: conversationSessionId,
         project_context: metadata.project_context ?? null,
-        prompt_output_contract: metadata.prompt_output_contract,
+        prompt_output_contract: getPromptOutputContractSnapshot(),
         source: metadata.source,
         ui_version: metadata.ui_version,
         workflow_persistence_enforced_at: new Date().toISOString()
