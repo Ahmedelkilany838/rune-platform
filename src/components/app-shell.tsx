@@ -78,6 +78,15 @@ function dedupeSessions(sessions: StoredChatSession[]) {
   return result;
 }
 
+function getUserFacingFailureMessage(response: ChatApiResponse) {
+  const firstError = response.errors.find((error) => error && !error.includes("status_"));
+  if (firstError) {
+    return `Rune could not complete this request. Workflow error: ${firstError}`;
+  }
+
+  return "Rune could not complete this request. The workflow did not return a usable assistant message or generated output.";
+}
+
 async function loadConversationSessionsFromApi(): Promise<StoredChatSession[] | null> {
   try {
     const response = await fetch("/api/conversations", { method: "GET", headers: { Accept: "application/json" } });
@@ -183,6 +192,7 @@ export function AppShell({ user }: { user: AppUser }) {
   const activeChatIdRef = useRef<string | null>(null);
   const chatSessionsRef = useRef<StoredChatSession[]>([]);
   const visibleChatSessions = useMemo(() => dedupeSessions(chatSessions), [chatSessions]);
+  const globalChatSessions = useMemo(() => visibleChatSessions.filter((chat) => !chat.projectId), [visibleChatSessions]);
 
   useEffect(() => {
     activeChatIdRef.current = activeChatId;
@@ -475,7 +485,7 @@ export function AppShell({ user }: { user: AppUser }) {
         }
         upsertChatSession({ chatId: requestChatId, nextConversationSessionId, nextLatestResponse: finalResponse, nextMessages: messagesWithAssistant, titleSource: trimmed });
       } else if (finalResponse.errors.length > 0) {
-        const messagesWithError: ChatMessage[] = [...latestRequestSession.messages, { id: createClientId("error"), role: "error", content: "Rune could not complete this request. Try rephrasing your message or start a new chat.", createdAt: new Date().toISOString(), response: finalResponse }];
+        const messagesWithError: ChatMessage[] = [...latestRequestSession.messages, { id: createClientId("error"), role: "error", content: getUserFacingFailureMessage(finalResponse), createdAt: new Date().toISOString(), response: finalResponse }];
         if (activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId) {
           setMessages(messagesWithError);
           setLatestResponse(finalResponse);
@@ -484,16 +494,19 @@ export function AppShell({ user }: { user: AppUser }) {
         }
         upsertChatSession({ chatId: requestChatId, nextConversationSessionId, nextLatestResponse: finalResponse, nextMessages: messagesWithError, titleSource: trimmed });
       } else {
+        const noOutputResponse: ChatApiResponse = { ...finalResponse, ok: false, errors: ["workflow_returned_no_assistant_message"] };
+        const messagesWithNoOutput: ChatMessage[] = [...latestRequestSession.messages, { id: createClientId("error"), role: "error", content: getUserFacingFailureMessage(noOutputResponse), createdAt: new Date().toISOString(), response: noOutputResponse }];
         if (activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId) {
-          setLatestResponse(finalResponse);
+          setMessages(messagesWithNoOutput);
+          setLatestResponse(noOutputResponse);
           setConversationSessionId(nextConversationSessionId);
-          setConnectionStatus(nextConnectionStatus);
+          setConnectionStatus("error");
         }
-        upsertChatSession({ chatId: requestChatId, nextConversationSessionId, nextLatestResponse: finalResponse, nextMessages: latestRequestSession.messages, titleSource: trimmed });
+        upsertChatSession({ chatId: requestChatId, nextConversationSessionId, nextLatestResponse: noOutputResponse, nextMessages: messagesWithNoOutput, titleSource: trimmed });
       }
     } catch {
       const failedResponse: ChatApiResponse = { ok: false, message_to_user: null, conversation_session_id: requestConversationSessionId, prompt_request_id: null, generated_output_id: null, wf10_status: null, output_type: null, platform: null, generation_layer: null, next_workflow: null, generated_prompt: null, avoid_constraints: null, structured_output: null, used_knowledge_blocks: null, validation_status: null, status: null, errors: ["frontend_request_failed"], raw: {} };
-      const failedMessages: ChatMessage[] = [...(chatSessionsRef.current.find((session) => session.id === requestChatId)?.messages ?? messagesWithUser), { id: createClientId("error"), role: "error", content: "The frontend could not reach the intake API route.", createdAt: new Date().toISOString(), response: failedResponse }];
+      const failedMessages: ChatMessage[] = [...(chatSessionsRef.current.find((session) => session.id === requestChatId)?.messages ?? messagesWithUser), { id: createClientId("error"), role: "error", content: getUserFacingFailureMessage(failedResponse), createdAt: new Date().toISOString(), response: failedResponse }];
       if (activeChatIdRef.current === requestChatId) {
         setMessages(failedMessages);
         setLatestResponse(failedResponse);
