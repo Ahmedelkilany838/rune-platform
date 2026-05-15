@@ -1,8 +1,9 @@
 import { APP_CONFIG } from "@/lib/app-config";
 import { getActiveWorkspace } from "@/lib/auth/get-active-workspace";
-import type { ChatApiResponse, ChatRequest } from "@/lib/chat-types";
+import type { ChatApiResponse, ChatRequest, JsonObject } from "@/lib/chat-types";
 import { normalizeWorkflowResponse } from "@/lib/normalize-workflow-response";
 import { createClient } from "@/lib/supabase/server";
+import { persistWorkflowContextSnapshot } from "@/lib/workflow-persistence";
 
 type IntakePayload = {
   workspace_id: string;
@@ -158,6 +159,18 @@ async function getValidatedProjectContext(
   };
 }
 
+function serializeProjectContext(context: ProjectContext | null): JsonObject | undefined {
+  if (!context) return undefined;
+  return {
+    description: context.description,
+    objective: context.objective,
+    platforms: context.platforms,
+    project_instructions: context.project_instructions,
+    project_name: context.project_name,
+    project_type: context.project_type
+  };
+}
+
 export async function POST(request: Request) {
   const body = await readJson(request);
 
@@ -261,6 +274,23 @@ export async function POST(request: Request) {
         })
         .eq("id", normalized.conversation_session_id)
         .eq("workspace_id", activeWorkspace.workspace.id);
+    }
+
+    if (normalized.prompt_request_id) {
+      const supabase = await createClient();
+      await persistWorkflowContextSnapshot({
+        conversationSessionId: normalized.conversation_session_id ?? body.conversation_session_id ?? null,
+        metadata: {
+          project_context: serializeProjectContext(projectResolution.context),
+          prompt_output_contract: APP_CONFIG.promptOutputContract,
+          source: APP_CONFIG.metadataSource,
+          ui_version: APP_CONFIG.uiVersion
+        },
+        projectId: projectResolution.projectId,
+        promptRequestId: normalized.prompt_request_id,
+        supabase,
+        workspaceId: activeWorkspace.workspace.id
+      });
     }
 
     if (!response.ok) {
