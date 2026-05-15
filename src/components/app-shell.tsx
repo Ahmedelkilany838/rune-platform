@@ -14,7 +14,7 @@ import { ProjectDashboard } from "@/components/workspace/project-dashboard";
 import { createClient } from "@/lib/supabase/client";
 import type { AppUser } from "@/lib/auth/app-user";
 
-const APP_SHELL_BASE_ROUTES = ["/chat", "/create", "/conversations", "/outputs"] as const;
+const APP_SHELL_BASE_ROUTES = ["/chat", "/conversations", "/outputs"] as const;
 type AppShellBaseRoute = (typeof APP_SHELL_BASE_ROUTES)[number];
 
 type ConversationsApiResponse =
