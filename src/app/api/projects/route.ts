@@ -27,8 +27,11 @@ type CreateProjectPayload = {
 
 const MAX_PROJECT_NAME_LENGTH = 120;
 const MAX_PROJECT_TEXT_LENGTH = 6000;
+const DEFAULT_PROJECT_TYPE = "creative_direction";
 const ALLOWED_PROJECT_TYPES = new Set([
   "single_prompt",
+  "creative_direction",
+  "art_direction",
   "product_ad",
   "social_content",
   "video_prompt",
@@ -54,7 +57,7 @@ function normalizePlatforms(value: unknown) {
 
 function normalizeProjectType(value: unknown) {
   const projectType = normalizeText(value, 80);
-  return ALLOWED_PROJECT_TYPES.has(projectType) ? projectType : "single_prompt";
+  return ALLOWED_PROJECT_TYPES.has(projectType) ? projectType : DEFAULT_PROJECT_TYPE;
 }
 
 function mapProject(row: ProjectRow): StoredProject {
