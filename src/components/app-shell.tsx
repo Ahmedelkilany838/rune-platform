@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Route } from "next";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { ChatApiResponse, ChatMessage, ConnectionStatus, JsonObject, JsonValue } from "@/lib/chat-types";
@@ -17,33 +17,12 @@ import type { AppUser } from "@/lib/auth/app-user";
 const APP_SHELL_BASE_ROUTES = ["/chat", "/conversations", "/outputs"] as const;
 type AppShellBaseRoute = (typeof APP_SHELL_BASE_ROUTES)[number];
 
-type ConversationsApiResponse =
-  | { ok: true; sessions: StoredChatSession[] }
-  | { error: string; ok: false };
-
-type ProjectsApiResponse =
-  | { ok: true; projects: StoredProject[] }
-  | { error: string; ok: false };
-
-type CreateProjectApiResponse =
-  | { ok: true; project: StoredProject }
-  | { error: string; ok: false };
-
-type UpdateConversationPayload = {
-  isArchived?: boolean;
-  isPinned?: boolean;
-  projectId?: string | null;
-  status?: "active" | "archived" | "deleted";
-  title?: string;
-};
-
-type UpdateConversationApiResponse =
-  | { ok: true; session: unknown }
-  | { error: string; ok: false };
-
-type ConversationMessagesApiResponse =
-  | { messages: ChatMessage[]; ok: true }
-  | { error: string; ok: false };
+type ConversationsApiResponse = { ok: true; sessions: StoredChatSession[] } | { error: string; ok: false };
+type ProjectsApiResponse = { ok: true; projects: StoredProject[] } | { error: string; ok: false };
+type CreateProjectApiResponse = { ok: true; project: StoredProject } | { error: string; ok: false };
+type UpdateConversationPayload = { isArchived?: boolean; isPinned?: boolean; projectId?: string | null; status?: "active" | "archived" | "deleted"; title?: string };
+type UpdateConversationApiResponse = { ok: true; session: unknown } | { error: string; ok: false };
+type ConversationMessagesApiResponse = { messages: ChatMessage[]; ok: true } | { error: string; ok: false };
 
 type GeneratedOutputData = {
   avoid_constraints: string | null;
@@ -64,22 +43,39 @@ type GeneratedOutputData = {
   validation_status: string | null;
 };
 
-type GeneratedOutputApiResponse =
-  | { ok: true; output: GeneratedOutputData }
-  | { error: string; ok: false };
-
-type CanonicalOutputResolutionRequest = {
-  conversationSessionId: string | null;
-  generatedOutputId: string | null;
-  messageText: string;
-  promptRequestId: string | null;
-  submittedAt: string;
-};
+type GeneratedOutputApiResponse = { ok: true; output: GeneratedOutputData } | { error: string; ok: false };
+type CanonicalOutputResolutionRequest = { conversationSessionId: string | null; generatedOutputId: string | null; messageText: string; promptRequestId: string | null; submittedAt: string };
 
 const CANONICAL_OUTPUT_RETRY_DELAYS = [0, 1500, 3000, 5000, 8000, 12000] as const;
+const TEMP_CHAT_PREFIX = "chat-";
 
 function getAppShellBaseRoute(pathname: string): AppShellBaseRoute {
   return APP_SHELL_BASE_ROUTES.includes(pathname as AppShellBaseRoute) ? (pathname as AppShellBaseRoute) : "/chat";
+}
+
+function getSessionCanonicalKey(session: StoredChatSession) {
+  return session.conversationSessionId ?? session.id;
+}
+
+function isTemporarySessionId(value: string | null | undefined) {
+  return typeof value === "string" && value.startsWith(TEMP_CHAT_PREFIX);
+}
+
+function dedupeSessions(sessions: StoredChatSession[]) {
+  const sorted = [...sessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const seen = new Set<string>();
+  const result: StoredChatSession[] = [];
+
+  for (const session of sorted) {
+    const canonicalKey = getSessionCanonicalKey(session);
+    const titleKey = [session.projectId ?? "global", session.title.trim().toLowerCase(), session.createdAt].join("|");
+    const keys = [canonicalKey, titleKey].filter(Boolean);
+    if (keys.some((key) => seen.has(key))) continue;
+    keys.forEach((key) => seen.add(key));
+    result.push(session);
+  }
+
+  return result;
 }
 
 async function loadConversationSessionsFromApi(): Promise<StoredChatSession[] | null> {
@@ -103,22 +99,14 @@ async function loadProjectsFromApi(): Promise<StoredProject[] | null> {
 }
 
 async function createProjectFromApi(name: string, description: string, instructions: string): Promise<StoredProject> {
-  const response = await fetch("/api/projects", {
-    method: "POST",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({ name, description, instructions })
-  });
+  const response = await fetch("/api/projects", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ name, description, instructions }) });
   const result = (await response.json()) as CreateProjectApiResponse;
   if (!response.ok || !result.ok) throw new Error("project_create_failed");
   return result.project;
 }
 
 async function updateConversationSessionApi(sessionId: string, payload: UpdateConversationPayload) {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(sessionId)}`, {
-    method: "PATCH",
-    headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
+  const response = await fetch(`/api/conversations/${encodeURIComponent(sessionId)}`, { method: "PATCH", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify(payload) });
   const result = (await response.json()) as UpdateConversationApiResponse;
   if (!response.ok || !result.ok) throw new Error(result.ok ? "conversation_update_failed" : result.error);
 }
@@ -132,17 +120,7 @@ async function fetchConversationMessages(sessionId: string): Promise<ChatMessage
 
 async function resolveGeneratedOutputFromApi(resolutionRequest: CanonicalOutputResolutionRequest): Promise<GeneratedOutputData | null> {
   try {
-    const response = await fetch("/api/generated-outputs/resolve", {
-      method: "POST",
-      headers: { Accept: "application/json", "Content-Type": "application/json" },
-      body: JSON.stringify({
-        conversation_session_id: resolutionRequest.conversationSessionId,
-        generated_output_id: resolutionRequest.generatedOutputId,
-        message_text: resolutionRequest.messageText,
-        prompt_request_id: resolutionRequest.promptRequestId,
-        submitted_at: resolutionRequest.submittedAt
-      })
-    });
+    const response = await fetch("/api/generated-outputs/resolve", { method: "POST", headers: { Accept: "application/json", "Content-Type": "application/json" }, body: JSON.stringify({ conversation_session_id: resolutionRequest.conversationSessionId, generated_output_id: resolutionRequest.generatedOutputId, message_text: resolutionRequest.messageText, prompt_request_id: resolutionRequest.promptRequestId, submitted_at: resolutionRequest.submittedAt }) });
     const result = (await response.json()) as GeneratedOutputApiResponse;
     return response.ok && result.ok ? result.output : null;
   } catch {
@@ -165,18 +143,7 @@ async function resolveCanonicalGeneratedOutput(resolutionRequest: CanonicalOutpu
 }
 
 function enrichResponseWithGeneratedOutput(response: ChatApiResponse, output: GeneratedOutputData): ChatApiResponse {
-  return {
-    ...response,
-    generated_output_id: output.id,
-    prompt_request_id: output.prompt_request_id,
-    generated_prompt: output.final_prompt ?? response.generated_prompt,
-    avoid_constraints: output.avoid_constraints,
-    structured_output: output.structured_output,
-    used_knowledge_blocks: output.used_knowledge_blocks,
-    validation_status: output.validation_status,
-    status: output.status,
-    output_type: output.output_type
-  };
+  return { ...response, generated_output_id: output.id, prompt_request_id: output.prompt_request_id, generated_prompt: output.final_prompt ?? response.generated_prompt, avoid_constraints: output.avoid_constraints, structured_output: output.structured_output, used_knowledge_blocks: output.used_knowledge_blocks, validation_status: output.validation_status, status: output.status, output_type: output.output_type };
 }
 
 function getAssistantMessageContent(response: ChatApiResponse) {
@@ -188,15 +155,7 @@ function getAssistantMessageContent(response: ChatApiResponse) {
 
 async function resolveFinalAssistantResponse({ response, messageText, submittedAt }: { response: ChatApiResponse; messageText: string; submittedAt: string }) {
   if (!response.ok) return response;
-
-  const output = await resolveCanonicalGeneratedOutput({
-    conversationSessionId: response.conversation_session_id,
-    generatedOutputId: response.generated_output_id,
-    messageText,
-    promptRequestId: response.prompt_request_id,
-    submittedAt
-  });
-
+  const output = await resolveCanonicalGeneratedOutput({ conversationSessionId: response.conversation_session_id, generatedOutputId: response.generated_output_id, messageText, promptRequestId: response.prompt_request_id, submittedAt });
   return output?.final_prompt ? enrichResponseWithGeneratedOutput(response, output) : response;
 }
 
@@ -223,6 +182,7 @@ export function AppShell({ user }: { user: AppUser }) {
 
   const activeChatIdRef = useRef<string | null>(null);
   const chatSessionsRef = useRef<StoredChatSession[]>([]);
+  const visibleChatSessions = useMemo(() => dedupeSessions(chatSessions), [chatSessions]);
 
   useEffect(() => {
     activeChatIdRef.current = activeChatId;
@@ -236,12 +196,12 @@ export function AppShell({ user }: { user: AppUser }) {
     let cancelled = false;
     async function loadInitialState() {
       const [apiSessions, apiProjects] = await Promise.all([loadConversationSessionsFromApi(), loadProjectsFromApi()]);
-      const loadedChats = apiSessions ?? loadStoredChatSessions();
+      const loadedChats = dedupeSessions(apiSessions ?? loadStoredChatSessions());
       if (cancelled) return;
       chatSessionsRef.current = loadedChats;
       setChatSessions(loadedChats);
       setProjects(apiProjects ?? []);
-      if (apiSessions) saveStoredChatSessions(apiSessions);
+      saveStoredChatSessions(loadedChats);
       setIsLoaded(true);
     }
     void loadInitialState();
@@ -296,7 +256,7 @@ export function AppShell({ user }: { user: AppUser }) {
   }
 
   function persistSessions(nextSessions: StoredChatSession[]) {
-    const sortedSessions = [...nextSessions].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const sortedSessions = dedupeSessions(nextSessions);
     chatSessionsRef.current = sortedSessions;
     setChatSessions(sortedSessions);
     saveStoredChatSessions(sortedSessions);
@@ -305,6 +265,7 @@ export function AppShell({ user }: { user: AppUser }) {
   function persistConversationMetadata(chatId: string, payload: UpdateConversationPayload) {
     const session = chatSessionsRef.current.find((item) => sessionsMatch(item, chatId, chatId));
     const sessionId = session?.conversationSessionId ?? session?.id ?? chatId;
+    if (isTemporarySessionId(sessionId)) return;
     void updateConversationSessionApi(sessionId, payload).catch(() => {
       void reloadConversationSessions();
     });
@@ -313,9 +274,7 @@ export function AppShell({ user }: { user: AppUser }) {
   async function reloadConversationSessions() {
     const apiSessions = await loadConversationSessionsFromApi();
     if (!apiSessions) return;
-    chatSessionsRef.current = apiSessions;
-    setChatSessions(apiSessions);
-    saveStoredChatSessions(apiSessions);
+    persistSessions(apiSessions);
   }
 
   function sessionsMatch(session: StoredChatSession, chatId: string | null, conversationId: string | null) {
@@ -343,6 +302,7 @@ export function AppShell({ user }: { user: AppUser }) {
     const projectId = activeProjectId;
     clearChatView({ keepProject: true });
     setActiveProjectId(projectId);
+    setShowProjectDashboard(Boolean(projectId));
     updateUrl(null, projectId, false);
   }
 
@@ -371,19 +331,19 @@ export function AppShell({ user }: { user: AppUser }) {
     updateUrl(null, newProject.id);
   }
 
-  function updateSession(session: StoredChatSession) {
-    const withoutCurrent = chatSessionsRef.current.filter((item) => !sessionsMatch(item, session.id, session.conversationSessionId));
+  function updateSession(session: StoredChatSession, replacedChatId?: string | null) {
+    const withoutCurrent = chatSessionsRef.current.filter((item) => !sessionsMatch(item, session.id, session.conversationSessionId) && !(replacedChatId && sessionsMatch(item, replacedChatId, replacedChatId)));
     persistSessions([session, ...withoutCurrent]);
   }
 
   async function selectChatSession(sessionId: string, options: { updateRoute?: boolean } = {}) {
-    const session = chatSessionsRef.current.find((s) => s.id === sessionId);
+    const session = chatSessionsRef.current.find((s) => s.id === sessionId || s.conversationSessionId === sessionId);
     if (!session) return;
     const shouldUpdateRoute = options.updateRoute ?? true;
     const messageSessionId = session.conversationSessionId ?? session.id;
-    activeChatIdRef.current = sessionId;
+    activeChatIdRef.current = session.id;
     setIsTemporaryChat(false);
-    setActiveChatId(sessionId);
+    setActiveChatId(session.id);
     setActiveProjectId(session.projectId);
     setShowProjectDashboard(false);
     setMessages(session.messages);
@@ -391,18 +351,19 @@ export function AppShell({ user }: { user: AppUser }) {
     setLatestResponse(session.latestResponse);
     setConnectionStatus(session.latestResponse ? (session.latestResponse.ok ? "connected" : "error") : "not_tested");
     setComposerValue("");
-    if (shouldUpdateRoute) updateUrl(sessionId, session.projectId, false);
+    if (shouldUpdateRoute) updateUrl(session.id, session.projectId, false);
+    if (isTemporarySessionId(messageSessionId)) return;
     try {
       const fetchedMessages = await fetchConversationMessages(messageSessionId);
-      const currentSession = chatSessionsRef.current.find((item) => item.id === sessionId);
+      const currentSession = chatSessionsRef.current.find((item) => item.id === session.id || item.conversationSessionId === messageSessionId);
       if (currentSession) updateSession({ ...currentSession, messages: fetchedMessages, latestResponse: null });
-      if (activeChatIdRef.current === sessionId) {
+      if (activeChatIdRef.current === session.id) {
         setMessages(fetchedMessages);
         setLatestResponse(null);
         setConnectionStatus("not_tested");
       }
     } catch {
-      if (activeChatIdRef.current === sessionId) setMessages([{ id: createClientId("error"), role: "error", content: "Could not load this conversation from Supabase.", createdAt: new Date().toISOString() }]);
+      if (activeChatIdRef.current === session.id) setMessages([{ id: createClientId("error"), role: "error", content: "Could not load this conversation from Supabase.", createdAt: new Date().toISOString() }]);
     }
   }
 
@@ -469,7 +430,7 @@ export function AppShell({ user }: { user: AppUser }) {
       }
       return nextSession;
     }
-    updateSession(nextSession);
+    updateSession(nextSession, chatId);
     if (activeChatIdRef.current === chatId || activeChatIdRef.current === nextConversationSessionId) {
       activeChatIdRef.current = id;
       setActiveChatId(id);
@@ -484,13 +445,14 @@ export function AppShell({ user }: { user: AppUser }) {
     const now = new Date().toISOString();
     const requestChatId = activeChatId ?? createClientId("chat");
     const requestConversationSessionId = conversationSessionId;
-    const baseSession = chatSessionsRef.current.find((session) => session.id === requestChatId) ?? ({ id: requestChatId, title: createChatTitle(trimmed), createdAt: now, updatedAt: now, conversationSessionId: requestConversationSessionId, messages: [], latestResponse: null, projectId: activeProjectId } satisfies StoredChatSession);
+    const baseSession = chatSessionsRef.current.find((session) => session.id === requestChatId || session.conversationSessionId === requestConversationSessionId) ?? ({ id: requestChatId, title: createChatTitle(trimmed), createdAt: now, updatedAt: now, conversationSessionId: requestConversationSessionId, messages: [], latestResponse: null, projectId: activeProjectId } satisfies StoredChatSession);
     const userMessage: ChatMessage = { id: createClientId("user"), role: "user", content: trimmed, createdAt: new Date().toISOString() };
     const messagesWithUser = [...baseSession.messages, userMessage];
     if (!activeChatId) {
       activeChatIdRef.current = requestChatId;
       setActiveChatId(requestChatId);
     }
+    setShowProjectDashboard(false);
     setMessages(messagesWithUser);
     upsertChatSession({ chatId: requestChatId, nextConversationSessionId: requestConversationSessionId, nextLatestResponse: baseSession.latestResponse, nextMessages: messagesWithUser, titleSource: trimmed });
     setGeneratingChatIds((current) => (current.includes(requestChatId) ? current : [...current, requestChatId]));
@@ -543,10 +505,11 @@ export function AppShell({ user }: { user: AppUser }) {
     }
   }
 
-  const activeSession = activeChatId ? chatSessions.find((session) => session.id === activeChatId) : null;
+  const activeSession = activeChatId ? visibleChatSessions.find((session) => session.id === activeChatId || session.conversationSessionId === activeChatId) : null;
   const activeProject = activeProjectId ? projects.find((project) => project.id === activeProjectId) : null;
   const shouldShowDashboard = showProjectDashboard && activeProject && !activeChatId;
-  const topbarProjectName = activeSession?.projectId ? projects.find((project) => project.id === activeSession.projectId)?.name : undefined;
+  const topbarProjectName = activeProject?.name ?? (activeSession?.projectId ? projects.find((project) => project.id === activeSession.projectId)?.name : undefined);
+  const activeChatLoading = activeChatId ? generatingChatIds.includes(activeChatId) : false;
 
   return (
     <div className="min-h-screen overflow-hidden bg-[#212121] text-zinc-100">
@@ -555,7 +518,7 @@ export function AppShell({ user }: { user: AppUser }) {
         <Sidebar
           activeChatId={activeChatId}
           activeProjectId={activeProjectId}
-          chatSessions={chatSessions}
+          chatSessions={visibleChatSessions}
           projects={projects}
           collapsed={sidebarCollapsed}
           onExpand={() => setSidebarCollapsed(false)}
@@ -590,11 +553,19 @@ export function AppShell({ user }: { user: AppUser }) {
         />
 
         <main className={cn("flex h-dvh min-w-0 flex-1 flex-col transition-[margin-left] duration-200 ease-out lg:ml-[272px]", sidebarCollapsed && "lg:ml-0")}>
-          <Topbar activeProjectName={topbarProjectName} onNewPrompt={startNewChat} showProjectCrumb={Boolean(activeSession?.projectId)} />
+          <Topbar activeProjectName={topbarProjectName} onNewPrompt={startNewChat} showProjectCrumb={Boolean(topbarProjectName)} />
           {shouldShowDashboard ? (
-            <ProjectDashboard project={activeProject!} chats={chatSessions.filter((chat) => chat.projectId === activeProjectId && !chat.isArchived)} onSelectChat={selectChatSession} onNewChat={startNewChat} />
+            <ProjectDashboard
+              project={activeProject!}
+              chats={visibleChatSessions.filter((chat) => chat.projectId === activeProjectId && !chat.isArchived)}
+              composerValue={composerValue}
+              loading={activeChatLoading}
+              onComposerChange={setComposerValue}
+              onSelectChat={selectChatSession}
+              onSubmit={submitMessage}
+            />
           ) : (
-            <ChatPanel messages={messages} loading={activeChatId ? generatingChatIds.includes(activeChatId) : false} composerValue={composerValue} onComposerChange={setComposerValue} onSubmit={submitMessage} />
+            <ChatPanel messages={messages} loading={activeChatLoading} composerValue={composerValue} onComposerChange={setComposerValue} onSubmit={submitMessage} />
           )}
         </main>
       </div>

@@ -1,5 +1,6 @@
-import { Folder, MessageSquare, MoreHorizontal, Plus, Search, Settings, Upload, X } from "lucide-react";
+import { Folder, MessageSquare, MoreHorizontal, Settings, Upload, X } from "lucide-react";
 import type { StoredChatSession, StoredProject } from "@/lib/chat-storage";
+import { ChatComposer } from "@/components/chat/chat-composer";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
@@ -12,13 +13,19 @@ function formatDate(iso: string) {
 export function ProjectDashboard({
   project,
   chats,
+  composerValue,
+  loading,
+  onComposerChange,
   onSelectChat,
-  onNewChat
+  onSubmit
 }: {
   project: StoredProject;
   chats: StoredChatSession[];
+  composerValue: string;
+  loading: boolean;
+  onComposerChange: (value: string) => void;
   onSelectChat: (chatId: string) => void;
-  onNewChat: () => void;
+  onSubmit: (message: string) => Promise<void>;
 }) {
   const [activeTab, setActiveTab] = useState<"chats" | "sources">("chats");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -48,17 +55,19 @@ export function ProjectDashboard({
           ) : null}
         </div>
         
-        <button 
-          onClick={onNewChat}
-          className="group flex w-full items-center gap-3 rounded-2xl border border-white/[0.07] bg-[#303030] px-4 py-3.5 text-left text-zinc-400 transition-all hover:bg-[#363636] hover:text-zinc-200"
-        >
-          <Plus className="h-5 w-5 transition-colors group-hover:text-white" />
-          <span className="flex-1 text-[15px]">New chat in {project.name}</span>
-          <div className="flex items-center gap-2">
-            <span className="rounded bg-white/[0.05] px-2 py-1 text-[11px] font-medium text-zinc-500">Project scoped</span>
-            <Search className="h-4 w-4 text-zinc-500" />
-          </div>
-        </button>
+        <div className="mx-auto w-full max-w-[760px]">
+          <ChatComposer
+            disabled={loading}
+            elevated
+            loading={loading}
+            value={composerValue}
+            onChange={onComposerChange}
+            onSubmit={onSubmit}
+          />
+          <p className="mt-2 text-center text-xs leading-5 text-zinc-600">
+            Start a project-scoped chat. Project context, instructions, and future sources will be sent with the request.
+          </p>
+        </div>
 
         <div className="mt-10 mb-6 flex items-center gap-6 border-b border-white/[0.05]">
           <button 
@@ -126,7 +135,7 @@ export function ProjectDashboard({
               <div className="py-12 text-center">
                 <MessageSquare className="mx-auto mb-4 h-12 w-12 text-zinc-800" />
                 <h3 className="mb-1 font-medium text-zinc-300">No chats yet</h3>
-                <p className="text-sm text-zinc-500">Start a new chat to begin directing this project.</p>
+                <p className="text-sm text-zinc-500">Write in the project composer above to create the first chat.</p>
               </div>
             )}
           </div>
