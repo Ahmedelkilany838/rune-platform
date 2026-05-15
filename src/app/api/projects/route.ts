@@ -9,6 +9,7 @@ type ProjectRow = {
   id: string;
   objective: string | null;
   platforms: string[] | null;
+  project_instructions: string | null;
   project_name: string;
   project_type: string;
   status: string;
@@ -46,7 +47,8 @@ function mapProject(row: ProjectRow): StoredProject {
   return {
     id: row.id,
     name: row.project_name,
-    instructions: row.objective ?? row.description ?? "",
+    description: row.description ?? "",
+    instructions: row.project_instructions ?? row.objective ?? "",
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -63,7 +65,7 @@ export async function GET() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
-    .select("id, project_name, project_type, status, description, objective, platforms, created_at, updated_at")
+    .select("id, project_name, project_type, status, description, objective, project_instructions, platforms, created_at, updated_at")
     .eq("workspace_id", activeWorkspace.workspace.id)
     .neq("status", "deleted")
     .order("updated_at", { ascending: false });
@@ -93,7 +95,8 @@ export async function POST(request: Request) {
 
   const name = normalizeText(payload.name, MAX_PROJECT_NAME_LENGTH);
   const description = normalizeText(payload.description, MAX_PROJECT_TEXT_LENGTH);
-  const objective = normalizeText(payload.objective ?? payload.instructions, MAX_PROJECT_TEXT_LENGTH);
+  const objective = normalizeText(payload.objective, MAX_PROJECT_TEXT_LENGTH);
+  const instructions = normalizeText(payload.instructions, MAX_PROJECT_TEXT_LENGTH);
   const platforms = normalizePlatforms(payload.platforms);
   const projectType = normalizeText(payload.project_type, 80) || "creative_direction";
 
@@ -111,10 +114,11 @@ export async function POST(request: Request) {
       project_type: projectType,
       status: "active",
       description: description || null,
-      objective: objective || null,
+      objective: objective || description || null,
+      project_instructions: instructions || null,
       platforms
     })
-    .select("id, project_name, project_type, status, description, objective, platforms, created_at, updated_at")
+    .select("id, project_name, project_type, status, description, objective, project_instructions, platforms, created_at, updated_at")
     .single();
 
   if (error) {
