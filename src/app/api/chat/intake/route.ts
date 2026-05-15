@@ -23,6 +23,7 @@ type IntakePayload = {
       project_name: string;
       project_type: string;
     };
+    prompt_output_contract: typeof APP_CONFIG.promptOutputContract;
     temporary_expires_at?: string;
     ui_version: typeof APP_CONFIG.uiVersion;
   };
@@ -212,6 +213,7 @@ export async function POST(request: Request) {
             project_context: projectResolution.context
           }
         : {}),
+      prompt_output_contract: APP_CONFIG.promptOutputContract,
       ...(body.is_temporary
         ? {
             is_temporary: true,
