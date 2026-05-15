@@ -343,6 +343,7 @@ export function AppShell({ user }: { user: AppUser }) {
     const projectId = activeProjectId;
     clearChatView({ keepProject: true });
     setActiveProjectId(projectId);
+    setShowProjectDashboard(Boolean(projectId));
     updateUrl(null, projectId, false);
   }
 
@@ -491,6 +492,7 @@ export function AppShell({ user }: { user: AppUser }) {
       activeChatIdRef.current = requestChatId;
       setActiveChatId(requestChatId);
     }
+    setShowProjectDashboard(false);
     setMessages(messagesWithUser);
     upsertChatSession({ chatId: requestChatId, nextConversationSessionId: requestConversationSessionId, nextLatestResponse: baseSession.latestResponse, nextMessages: messagesWithUser, titleSource: trimmed });
     setGeneratingChatIds((current) => (current.includes(requestChatId) ? current : [...current, requestChatId]));
@@ -546,7 +548,7 @@ export function AppShell({ user }: { user: AppUser }) {
   const activeSession = activeChatId ? chatSessions.find((session) => session.id === activeChatId) : null;
   const activeProject = activeProjectId ? projects.find((project) => project.id === activeProjectId) : null;
   const shouldShowDashboard = showProjectDashboard && activeProject && !activeChatId;
-  const topbarProjectName = activeSession?.projectId ? projects.find((project) => project.id === activeSession.projectId)?.name : undefined;
+  const topbarProjectName = activeProject?.name ?? (activeSession?.projectId ? projects.find((project) => project.id === activeSession.projectId)?.name : undefined);
 
   return (
     <div className="min-h-screen overflow-hidden bg-[#212121] text-zinc-100">
@@ -590,9 +592,17 @@ export function AppShell({ user }: { user: AppUser }) {
         />
 
         <main className={cn("flex h-dvh min-w-0 flex-1 flex-col transition-[margin-left] duration-200 ease-out lg:ml-[272px]", sidebarCollapsed && "lg:ml-0")}>
-          <Topbar activeProjectName={topbarProjectName} onNewPrompt={startNewChat} showProjectCrumb={Boolean(activeSession?.projectId)} />
+          <Topbar activeProjectName={topbarProjectName} onNewPrompt={startNewChat} showProjectCrumb={Boolean(topbarProjectName)} />
           {shouldShowDashboard ? (
-            <ProjectDashboard project={activeProject!} chats={chatSessions.filter((chat) => chat.projectId === activeProjectId && !chat.isArchived)} onSelectChat={selectChatSession} onNewChat={startNewChat} />
+            <ProjectDashboard
+              project={activeProject!}
+              chats={chatSessions.filter((chat) => chat.projectId === activeProjectId && !chat.isArchived)}
+              composerValue={composerValue}
+              loading={activeChatId ? generatingChatIds.includes(activeChatId) : false}
+              onComposerChange={setComposerValue}
+              onSelectChat={selectChatSession}
+              onSubmit={submitMessage}
+            />
           ) : (
             <ChatPanel messages={messages} loading={activeChatId ? generatingChatIds.includes(activeChatId) : false} composerValue={composerValue} onComposerChange={setComposerValue} onSubmit={submitMessage} />
           )}
