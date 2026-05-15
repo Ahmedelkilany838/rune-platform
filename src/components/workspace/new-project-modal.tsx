@@ -7,25 +7,36 @@ import { Button } from "@/components/ui/button";
 type NewProjectModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (name: string, description: string, instructions: string) => void;
+  onSubmit: (name: string, description: string, instructions: string) => Promise<void> | void;
 };
 
 export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalProps) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [instructions, setInstructions] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (event: React.FormEvent) => {
+  const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     const trimmedName = name.trim();
-    if (!trimmedName) return;
+    if (!trimmedName || isSubmitting) return;
 
-    onSubmit(trimmedName, description.trim(), instructions.trim());
-    setName("");
-    setDescription("");
-    setInstructions("");
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
+    try {
+      await onSubmit(trimmedName, description.trim(), instructions.trim());
+      setName("");
+      setDescription("");
+      setInstructions("");
+    } catch {
+      setErrorMessage("Project could not be created. Nothing was sent to chat. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -40,6 +51,7 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
             onClick={onClose}
             className="rounded-lg p-1 text-zinc-400 transition hover:bg-white/[0.05] hover:text-white"
             type="button"
+            disabled={isSubmitting}
           >
             <X className="h-5 w-5" />
           </button>
@@ -58,6 +70,7 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
               className="w-full rounded-xl border border-white/[0.08] bg-[#303030] px-4 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-white/[0.22] focus:outline-none focus:ring-1 focus:ring-white/[0.16]"
               placeholder="e.g. Summer Campaign 2026"
               required
+              disabled={isSubmitting}
             />
           </div>
 
@@ -71,6 +84,7 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
               onChange={(event) => setDescription(event.target.value)}
               className="no-scrollbar h-24 w-full resize-none rounded-xl border border-white/[0.08] bg-[#303030] px-4 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-white/[0.22] focus:outline-none focus:ring-1 focus:ring-white/[0.16]"
               placeholder="What is this project about? Product, brand, audience, goal, platform, campaign context..."
+              disabled={isSubmitting}
             />
           </div>
 
@@ -84,18 +98,25 @@ export function NewProjectModal({ isOpen, onClose, onSubmit }: NewProjectModalPr
               onChange={(event) => setInstructions(event.target.value)}
               className="no-scrollbar h-28 w-full resize-none rounded-xl border border-white/[0.08] bg-[#303030] px-4 py-2.5 text-sm text-white placeholder:text-zinc-600 focus:border-white/[0.22] focus:outline-none focus:ring-1 focus:ring-white/[0.16]"
               placeholder="Rules the AI must follow in this project. Example: do not agree too quickly, ask when unclear, avoid luxury clichés, keep output unbiased..."
+              disabled={isSubmitting}
             />
             <p className="mt-1.5 text-xs text-zinc-500">
               These instructions are persisted and included in the workflow context for every chat inside this project.
             </p>
           </div>
 
+          {errorMessage ? (
+            <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-200">
+              {errorMessage}
+            </div>
+          ) : null}
+
           <div className="flex justify-end gap-3 pt-2">
-            <Button type="button" variant="ghost" onClick={onClose} className="h-10 px-4">
+            <Button type="button" variant="ghost" onClick={onClose} className="h-10 px-4" disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" variant="primary" className="h-10 rounded-xl px-6">
-              Create project
+            <Button type="submit" variant="primary" className="h-10 rounded-xl px-6" disabled={isSubmitting}>
+              {isSubmitting ? "Creating..." : "Create project"}
             </Button>
           </div>
         </form>

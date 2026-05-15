@@ -1,4 +1,4 @@
-import { Folder, MessageSquare, MoreHorizontal, Plus, Search } from "lucide-react";
+import { Folder, MessageSquare, MoreHorizontal, Plus, Search, Settings, Upload, X } from "lucide-react";
 import type { StoredChatSession, StoredProject } from "@/lib/chat-storage";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -21,59 +21,72 @@ export function ProjectDashboard({
   onNewChat: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<"chats" | "sources">("chats");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#212121]">
-      <div className="flex-1 max-w-4xl mx-auto w-full px-4 sm:px-6 md:px-8 pt-20 pb-24 overflow-y-auto">
-        <div className="mb-12 text-center">
-          <h1 className="inline-flex items-center justify-center gap-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-            {project.name}
-            <Folder className="h-8 w-8 text-zinc-300" />
-          </h1>
+    <div className="flex h-full flex-1 flex-col bg-[#212121]">
+      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col overflow-y-auto px-4 pb-24 pt-14 sm:px-6 md:px-8">
+        <div className="mb-8 text-center">
+          <div className="inline-flex max-w-full items-center justify-center gap-3">
+            <h1 className="truncate text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+              {project.name}
+            </h1>
+            <Folder className="h-7 w-7 shrink-0 text-zinc-300" />
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              className="rounded-full border border-white/[0.08] bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.08] hover:text-white"
+              aria-label="Open project settings"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+          </div>
+          {project.description ? (
+            <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-zinc-400">
+              {project.description}
+            </p>
+          ) : null}
         </div>
         
-        {/* New chat button / search bar style */}
         <button 
           onClick={onNewChat}
-          className="w-full flex items-center gap-3 px-4 py-3.5 bg-[#303030] hover:bg-[#363636] border border-white/[0.07] rounded-2xl text-zinc-400 hover:text-zinc-200 transition-all text-left group"
+          className="group flex w-full items-center gap-3 rounded-2xl border border-white/[0.07] bg-[#303030] px-4 py-3.5 text-left text-zinc-400 transition-all hover:bg-[#363636] hover:text-zinc-200"
         >
-          <Plus className="w-5 h-5 group-hover:text-white transition-colors" />
+          <Plus className="h-5 w-5 transition-colors group-hover:text-white" />
           <span className="flex-1 text-[15px]">New chat in {project.name}</span>
           <div className="flex items-center gap-2">
-            <span className="text-[11px] font-medium bg-white/[0.05] px-2 py-1 rounded text-zinc-500">Structured</span>
-            <Search className="w-4 h-4 text-zinc-500" />
+            <span className="rounded bg-white/[0.05] px-2 py-1 text-[11px] font-medium text-zinc-500">Project scoped</span>
+            <Search className="h-4 w-4 text-zinc-500" />
           </div>
         </button>
 
-        {/* Tabs */}
-        <div className="flex items-center gap-6 mt-10 mb-6 border-b border-white/[0.05]">
+        <div className="mt-10 mb-6 flex items-center gap-6 border-b border-white/[0.05]">
           <button 
             onClick={() => setActiveTab("chats")}
             className={cn(
-              "pb-3 text-[14px] font-medium transition-colors relative",
+              "relative pb-3 text-[14px] font-medium transition-colors",
               activeTab === "chats" ? "text-white" : "text-zinc-500 hover:text-zinc-300"
             )}
           >
             Chats
             {activeTab === "chats" && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white rounded-t-full" />
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full bg-white" />
             )}
           </button>
           <button 
             onClick={() => setActiveTab("sources")}
             className={cn(
-              "pb-3 text-[14px] font-medium transition-colors relative",
+              "relative pb-3 text-[14px] font-medium transition-colors",
               activeTab === "sources" ? "text-white" : "text-zinc-500 hover:text-zinc-300"
             )}
           >
             Sources
             {activeTab === "sources" && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-white rounded-t-full" />
+              <div className="absolute bottom-0 left-0 right-0 h-0.5 rounded-t-full bg-white" />
             )}
           </button>
         </div>
 
-        {/* Chat sessions list */}
         {activeTab === "chats" && (
           <div className="space-y-1">
             {chats.map(chat => {
@@ -86,23 +99,23 @@ export function ProjectDashboard({
                 <div 
                   key={chat.id}
                   onClick={() => onSelectChat(chat.id)}
-                  className="group flex items-start gap-4 p-3 rounded-xl hover:bg-white/[0.04] cursor-pointer transition-colors border border-transparent hover:border-white/[0.05]"
+                  className="group flex cursor-pointer items-start gap-4 rounded-xl border border-transparent p-3 transition-colors hover:border-white/[0.05] hover:bg-white/[0.04]"
                 >
-                  <div className="w-8 h-8 rounded-full bg-[#303030] text-zinc-200 flex items-center justify-center shrink-0 mt-0.5 text-[11px] font-bold">
+                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#303030] text-[11px] font-bold text-zinc-200">
                     {project.name.substring(0, 2).toUpperCase()}
                   </div>
                   
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-[14px] font-medium text-zinc-200 truncate">{chat.title}</h3>
-                    <p className="text-[13px] text-zinc-500 truncate mt-0.5">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-[14px] font-medium text-zinc-200">{chat.title}</h3>
+                    <p className="mt-0.5 truncate text-[13px] text-zinc-500">
                       {preview}
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-3 shrink-0 ml-4">
+                  <div className="ml-4 flex shrink-0 items-center gap-3">
                     <span className="text-[12px] text-zinc-500">{formattedDate}</span>
-                    <button className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-white/[0.1] rounded-md text-zinc-400 transition-all">
-                      <MoreHorizontal className="w-4 h-4" />
+                    <button className="rounded-md p-1.5 text-zinc-400 opacity-0 transition-all hover:bg-white/[0.1] group-hover:opacity-100">
+                      <MoreHorizontal className="h-4 w-4" />
                     </button>
                   </div>
                 </div>
@@ -110,24 +123,67 @@ export function ProjectDashboard({
             })}
             
             {chats.length === 0 && (
-              <div className="text-center py-12">
-                <MessageSquare className="w-12 h-12 text-zinc-800 mx-auto mb-4" />
-                <h3 className="text-zinc-300 font-medium mb-1">No chats yet</h3>
-                <p className="text-zinc-500 text-sm">Start a new chat to begin directing this project.</p>
+              <div className="py-12 text-center">
+                <MessageSquare className="mx-auto mb-4 h-12 w-12 text-zinc-800" />
+                <h3 className="mb-1 font-medium text-zinc-300">No chats yet</h3>
+                <p className="text-sm text-zinc-500">Start a new chat to begin directing this project.</p>
               </div>
             )}
           </div>
         )}
 
-        {/* Sources Tab Placeholder */}
         {activeTab === "sources" && (
-          <div className="text-center py-12">
-            <h3 className="text-zinc-300 font-medium mb-1">Sources</h3>
-            <p className="text-zinc-500 text-sm">Connect files and documents to this project.</p>
+          <div className="rounded-3xl border border-dashed border-white/[0.1] bg-black/10 p-8 text-center">
+            <Upload className="mx-auto mb-4 h-10 w-10 text-zinc-700" />
+            <h3 className="mb-1 font-medium text-zinc-300">Sources</h3>
+            <p className="mx-auto max-w-md text-sm leading-6 text-zinc-500">
+              Project source files will live here. This area is reserved for references, documents, and project assets that should influence future chats.
+            </p>
           </div>
         )}
-
       </div>
+
+      {isSettingsOpen ? (
+        <div className="fixed inset-0 z-[90] flex justify-end bg-black/40 backdrop-blur-sm">
+          <aside className="h-full w-full max-w-md border-l border-white/[0.08] bg-[#202020] p-5 shadow-2xl">
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Project settings</p>
+                <h2 className="mt-1 text-xl font-semibold text-white">{project.name}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(false)}
+                className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                aria-label="Close project settings"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-white/[0.07] bg-black/15 p-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Description</p>
+                <p className="text-sm leading-6 text-zinc-300">{project.description || "No description added yet."}</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/[0.07] bg-black/15 p-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Instructions</p>
+                <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                  {project.instructions || "No project instructions added yet."}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/[0.07] bg-black/15 p-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Sources</p>
+                <p className="text-sm leading-6 text-zinc-400">
+                  Source management will connect project references, files, and assets without exposing backend details on the main dashboard.
+                </p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      ) : null}
     </div>
   );
 }

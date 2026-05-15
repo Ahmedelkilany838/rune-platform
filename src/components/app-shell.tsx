@@ -356,18 +356,19 @@ export function AppShell({ user }: { user: AppUser }) {
   }
 
   async function handleCreateProject(name: string, description: string, instructions: string) {
-    try {
-      const newProject = await createProjectFromApi(name, description, instructions);
-      setProjects([newProject, ...projects.filter((project) => project.id !== newProject.id)]);
-      setActiveProjectId(newProject.id);
-      setIsProjectModalOpen(false);
-      setShowProjectDashboard(true);
-      setActiveChatId(null);
-      activeChatIdRef.current = null;
-      updateUrl(null, newProject.id);
-    } catch {
-      setComposerValue(`Create a project brief for ${name}. ${description} ${instructions}`.trim());
-    }
+    const newProject = await createProjectFromApi(name, description, instructions);
+    setProjects([newProject, ...projects.filter((project) => project.id !== newProject.id)]);
+    setActiveProjectId(newProject.id);
+    setIsProjectModalOpen(false);
+    setShowProjectDashboard(true);
+    setActiveChatId(null);
+    activeChatIdRef.current = null;
+    setMessages([]);
+    setConversationSessionId(null);
+    setLatestResponse(null);
+    setConnectionStatus("not_tested");
+    setComposerValue("");
+    updateUrl(null, newProject.id);
   }
 
   function updateSession(session: StoredChatSession) {
