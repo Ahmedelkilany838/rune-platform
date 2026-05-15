@@ -2,12 +2,36 @@ node_modules
 .next
 out
 dist
+build
 coverage
+.cache
 tsconfig.tsbuildinfo
+
+# environment
 .env
 .env.local
 .env.*.local
+!.env.example
+
+# logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+
+# local archives and generated debug reports
+*.zip
+*.tar
+*.tar.gz
+/*_report.txt
+/create_redirect_search.txt
+
+# editor / OS
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# deployment local state
+.vercel/
