@@ -27,6 +27,19 @@ type CreateProjectPayload = {
 
 const MAX_PROJECT_NAME_LENGTH = 120;
 const MAX_PROJECT_TEXT_LENGTH = 6000;
+const DEFAULT_PROJECT_TYPE = "workspace_project";
+const ALLOWED_PROJECT_TYPES = new Set([
+  "workspace_project",
+  "single_prompt",
+  "creative_direction",
+  "art_direction",
+  "product_ad",
+  "social_content",
+  "video_prompt",
+  "campaign",
+  "reference_analysis",
+  "brand_system"
+]);
 
 function normalizeText(value: unknown, maxLength: number) {
   if (typeof value !== "string") return "";
@@ -41,6 +54,11 @@ function normalizePlatforms(value: unknown) {
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean)
     .slice(0, 20);
+}
+
+function normalizeProjectType(value: unknown) {
+  const projectType = normalizeText(value, 80);
+  return ALLOWED_PROJECT_TYPES.has(projectType) ? projectType : DEFAULT_PROJECT_TYPE;
 }
 
 function mapProject(row: ProjectRow): StoredProject {
@@ -98,7 +116,7 @@ export async function POST(request: Request) {
   const objective = normalizeText(payload.objective, MAX_PROJECT_TEXT_LENGTH);
   const instructions = normalizeText(payload.instructions, MAX_PROJECT_TEXT_LENGTH);
   const platforms = normalizePlatforms(payload.platforms);
-  const projectType = normalizeText(payload.project_type, 80) || "creative_direction";
+  const projectType = normalizeProjectType(payload.project_type);
 
   if (!name) {
     return NextResponse.json({ ok: false, error: "project_name_required" }, { status: 400 });
@@ -109,7 +127,7 @@ export async function POST(request: Request) {
     .from("projects")
     .insert({
       workspace_id: activeWorkspace.workspace.id,
-      created_by: activeWorkspace.user.id,
+      created_by: activeWorkspace.profile.id,
       project_name: name,
       project_type: projectType,
       status: "active",
