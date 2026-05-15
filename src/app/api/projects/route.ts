@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getActiveWorkspace } from "@/lib/auth/get-active-workspace";
-import type { JsonObject } from "@/lib/chat-types";
 import type { StoredProject } from "@/lib/chat-storage";
 import { createClient } from "@/lib/supabase/server";
 
@@ -50,14 +49,6 @@ function mapProject(row: ProjectRow): StoredProject {
     instructions: row.objective ?? row.description ?? "",
     createdAt: row.created_at,
     updatedAt: row.updated_at
-  };
-}
-
-function getProjectMetadata(payload: CreateProjectPayload): JsonObject {
-  return {
-    source: "rune_frontend",
-    ui_version: "chat_workspace_v1",
-    instructions_source: "project_objective"
   };
 }
 
@@ -121,8 +112,7 @@ export async function POST(request: Request) {
       status: "active",
       description: description || null,
       objective: objective || null,
-      platforms,
-      metadata: getProjectMetadata(payload)
+      platforms
     })
     .select("id, project_name, project_type, status, description, objective, platforms, created_at, updated_at")
     .single();
