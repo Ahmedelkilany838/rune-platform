@@ -34,7 +34,7 @@ export default async function CreatePage() {
 
   return (
     <Suspense fallback={<div className="h-screen w-screen bg-black" />}>
-      <AppShell routeMode="create" user={getAppUser(user)} />
+      <AppShell user={getAppUser(user)} />
     </Suspense>
   );
 }
