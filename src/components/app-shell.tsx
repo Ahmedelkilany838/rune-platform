@@ -97,17 +97,12 @@ async function createProjectFromApi(name: string, instructions: string): Promise
     body: JSON.stringify({ name, objective: instructions })
   });
   const result = (await response.json()) as CreateProjectApiResponse;
-  if (!response.ok || !result.ok) {
-    throw new Error("project_create_failed");
-  }
+  if (!response.ok || !result.ok) throw new Error("project_create_failed");
   return result.project;
 }
 
 async function fetchConversationMessages(sessionId: string): Promise<ChatMessage[]> {
-  const response = await fetch(`/api/conversations/${encodeURIComponent(sessionId)}/messages`, {
-    method: "GET",
-    headers: { Accept: "application/json" }
-  });
+  const response = await fetch(`/api/conversations/${encodeURIComponent(sessionId)}/messages`, { method: "GET", headers: { Accept: "application/json" } });
   const result = (await response.json()) as ConversationMessagesApiResponse;
   if (!response.ok || !result.ok) throw new Error("conversation_messages_fetch_failed");
   return result.messages;
@@ -203,7 +198,6 @@ export function AppShell({ user }: { user: AppUser }) {
 
   useEffect(() => {
     let cancelled = false;
-
     async function loadInitialState() {
       const [apiSessions, apiProjects] = await Promise.all([loadConversationSessionsFromApi(), loadProjectsFromApi()]);
       const loadedChats = apiSessions ?? loadStoredChatSessions();
@@ -214,7 +208,6 @@ export function AppShell({ user }: { user: AppUser }) {
       if (apiSessions) saveStoredChatSessions(apiSessions);
       setIsLoaded(true);
     }
-
     void loadInitialState();
     return () => {
       cancelled = true;
@@ -226,16 +219,13 @@ export function AppShell({ user }: { user: AppUser }) {
     const urlChat = searchParams.get("chat");
     const urlProject = searchParams.get("project");
     const urlTemporaryChat = searchParams.get("temporary-chat") === "true";
-
     if (urlTemporaryChat) {
       setIsTemporaryChat(true);
       if (!activeChatId && !activeProjectId) return;
       clearChatView({ keepProject: false });
       return;
     }
-
     setIsTemporaryChat(false);
-
     if (urlChat && urlChat !== activeChatId) {
       const session = chatSessionsRef.current.find((s) => s.id === urlChat || s.conversationSessionId === urlChat);
       if (session) void selectChatSession(session.id, { updateRoute: false });
@@ -277,12 +267,7 @@ export function AppShell({ user }: { user: AppUser }) {
   }
 
   function sessionsMatch(session: StoredChatSession, chatId: string | null, conversationId: string | null) {
-    return (
-      (Boolean(chatId) && session.id === chatId) ||
-      (Boolean(chatId) && session.conversationSessionId === chatId) ||
-      (Boolean(conversationId) && session.id === conversationId) ||
-      (Boolean(conversationId) && session.conversationSessionId === conversationId)
-    );
+    return (Boolean(chatId) && session.id === chatId) || (Boolean(chatId) && session.conversationSessionId === chatId) || (Boolean(conversationId) && session.id === conversationId) || (Boolean(conversationId) && session.conversationSessionId === conversationId);
   }
 
   function clearChatView({ keepProject }: { keepProject: boolean }) {
@@ -321,8 +306,7 @@ export function AppShell({ user }: { user: AppUser }) {
   async function handleCreateProject(name: string, instructions: string) {
     try {
       const newProject = await createProjectFromApi(name, instructions);
-      const nextProjects = [newProject, ...projects.filter((project) => project.id !== newProject.id)];
-      setProjects(nextProjects);
+      setProjects([newProject, ...projects.filter((project) => project.id !== newProject.id)]);
       setActiveProjectId(newProject.id);
       setIsProjectModalOpen(false);
       setShowProjectDashboard(true);
@@ -335,8 +319,7 @@ export function AppShell({ user }: { user: AppUser }) {
   }
 
   function updateSession(session: StoredChatSession) {
-    const currentSessions = chatSessionsRef.current;
-    const withoutCurrent = currentSessions.filter((item) => !sessionsMatch(item, session.id, session.conversationSessionId));
+    const withoutCurrent = chatSessionsRef.current.filter((item) => !sessionsMatch(item, session.id, session.conversationSessionId));
     persistSessions([session, ...withoutCurrent]);
   }
 
@@ -366,9 +349,7 @@ export function AppShell({ user }: { user: AppUser }) {
         setConnectionStatus("not_tested");
       }
     } catch {
-      if (activeChatIdRef.current === sessionId) {
-        setMessages([{ id: createClientId("error"), role: "error", content: "Could not load this conversation from Supabase.", createdAt: new Date().toISOString() }]);
-      }
+      if (activeChatIdRef.current === sessionId) setMessages([{ id: createClientId("error"), role: "error", content: "Could not load this conversation from Supabase.", createdAt: new Date().toISOString() }]);
     }
   }
 
@@ -417,20 +398,7 @@ export function AppShell({ user }: { user: AppUser }) {
     const id = nextConversationSessionId ?? chatId;
     const existingSession = chatSessionsRef.current.find((session) => sessionsMatch(session, chatId, nextConversationSessionId));
     const title = existingSession?.title && !["New chat", "New brief"].includes(existingSession.title) ? existingSession.title : createChatTitle(titleSource ?? "");
-    const nextSession: StoredChatSession = {
-      id,
-      title,
-      createdAt: existingSession?.createdAt ?? now,
-      updatedAt: now,
-      conversationSessionId: nextConversationSessionId,
-      messages: nextMessages,
-      latestResponse: nextLatestResponse,
-      projectId: existingSession?.projectId ?? activeProjectId,
-      isPinned: existingSession?.isPinned,
-      isArchived: existingSession?.isArchived,
-      isTemporary: isTemporaryChat,
-      temporaryExpiresAt: isTemporaryChat ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null
-    };
+    const nextSession: StoredChatSession = { id, title, createdAt: existingSession?.createdAt ?? now, updatedAt: now, conversationSessionId: nextConversationSessionId, messages: nextMessages, latestResponse: nextLatestResponse, projectId: existingSession?.projectId ?? activeProjectId, isPinned: existingSession?.isPinned, isArchived: existingSession?.isArchived, isTemporary: isTemporaryChat, temporaryExpiresAt: isTemporaryChat ? new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() : null };
     if (isTemporaryChat) {
       if (activeChatIdRef.current === chatId || activeChatIdRef.current === nextConversationSessionId) {
         activeChatIdRef.current = id;
@@ -483,7 +451,6 @@ export function AppShell({ user }: { user: AppUser }) {
     setMessages(messagesWithUser);
     upsertChatSession({ chatId: requestChatId, nextConversationSessionId: requestConversationSessionId, nextLatestResponse: baseSession.latestResponse, nextMessages: messagesWithUser, titleSource: trimmed });
     setGeneratingChatIds((current) => (current.includes(requestChatId) ? current : [...current, requestChatId]));
-
     try {
       const response = await fetch("/api/chat/intake", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message_text: trimmed, conversation_session_id: requestConversationSessionId, project_id: activeProjectId, is_temporary: isTemporaryChat }) });
       const data = (await response.json()) as ChatApiResponse;
@@ -491,7 +458,6 @@ export function AppShell({ user }: { user: AppUser }) {
       const nextConversationSessionId = data.conversation_session_id ?? requestConversationSessionId;
       const nextConnectionStatus = response.ok && data.ok ? "connected" : "error";
       const latestRequestSession = chatSessionsRef.current.find((session) => sessionsMatch(session, requestChatId, nextConversationSessionId)) ?? (isTemporaryChat ? { ...baseSession, messages: messagesWithUser } : baseSession);
-
       if (assistantContent) {
         const assistantMessageId = createClientId("assistant");
         const messagesWithAssistant: ChatMessage[] = [...latestRequestSession.messages, { id: assistantMessageId, animate: activeChatIdRef.current === requestChatId || activeChatIdRef.current === nextConversationSessionId, role: "assistant", content: assistantContent, createdAt: new Date().toISOString(), response: data }];
@@ -583,7 +549,7 @@ export function AppShell({ user }: { user: AppUser }) {
         <main className={cn("flex h-dvh min-w-0 flex-1 flex-col transition-[margin-left] duration-200 ease-out lg:ml-[272px]", sidebarCollapsed && "lg:ml-0")}>
           <Topbar activeProjectName={topbarProjectName} onNewPrompt={startNewChat} showProjectCrumb={Boolean(activeSession?.projectId)} />
           {shouldShowDashboard ? (
-            <ProjectDashboard project={activeProject} chats={chatSessions.filter((chat) => chat.projectId === activeProjectId && !chat.isArchived)} onSelectChat={selectChatSession} onNewChat={startNewChat} />
+            <ProjectDashboard project={activeProject!} chats={chatSessions.filter((chat) => chat.projectId === activeProjectId && !chat.isArchived)} onSelectChat={selectChatSession} onNewChat={startNewChat} />
           ) : (
             <ChatPanel messages={messages} loading={activeChatId ? generatingChatIds.includes(activeChatId) : false} composerValue={composerValue} onComposerChange={setComposerValue} onSubmit={submitMessage} />
           )}
