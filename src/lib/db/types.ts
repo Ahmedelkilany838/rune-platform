@@ -33,6 +33,21 @@ export type WorkspaceMemberRow = {
   workspace_id: string;
 };
 
+export type ProjectRow = {
+  brand_id: string | null;
+  created_at: string;
+  created_by: string | null;
+  description: string | null;
+  id: string;
+  objective: string | null;
+  platforms: string[];
+  project_name: string;
+  project_type: string;
+  status: string;
+  updated_at: string;
+  workspace_id: string;
+};
+
 export type ConversationSessionRow = {
   created_at: string;
   id: string;
@@ -173,6 +188,7 @@ export type Database = {
       conversation_messages: TableDefinition<ConversationMessageRow>;
       conversation_sessions: TableDefinition<ConversationSessionRow>;
       generated_outputs: TableDefinition<GeneratedOutputRow>;
+      projects: TableDefinition<ProjectRow>;
       prompt_requests: TableDefinition<PromptRequestRow>;
       prompt_versions: TableDefinition<PromptVersionRow>;
       quality_scores: TableDefinition<QualityScoreRow>;
