@@ -1,4 +1,4 @@
-import { FileText, Folder, MessageSquare, MoreHorizontal, Plus, Search, Upload } from "lucide-react";
+import { Folder, MessageSquare, MoreHorizontal, Plus, Search, Settings, Upload, X } from "lucide-react";
 import type { StoredChatSession, StoredProject } from "@/lib/chat-storage";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
@@ -21,52 +21,31 @@ export function ProjectDashboard({
   onNewChat: () => void;
 }) {
   const [activeTab, setActiveTab] = useState<"chats" | "sources">("chats");
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   return (
     <div className="flex h-full flex-1 flex-col bg-[#212121]">
       <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col overflow-y-auto px-4 pb-24 pt-14 sm:px-6 md:px-8">
         <div className="mb-8 text-center">
-          <h1 className="inline-flex items-center justify-center gap-3 text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-            {project.name}
-            <Folder className="h-8 w-8 text-zinc-300" />
-          </h1>
+          <div className="inline-flex max-w-full items-center justify-center gap-3">
+            <h1 className="truncate text-3xl font-semibold tracking-tight text-white sm:text-4xl">
+              {project.name}
+            </h1>
+            <Folder className="h-7 w-7 shrink-0 text-zinc-300" />
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              className="rounded-full border border-white/[0.08] bg-white/[0.03] p-2 text-zinc-400 transition hover:bg-white/[0.08] hover:text-white"
+              aria-label="Open project settings"
+            >
+              <Settings className="h-4 w-4" />
+            </button>
+          </div>
           {project.description ? (
-            <p className="mx-auto mt-4 max-w-2xl text-sm leading-6 text-zinc-400">
+            <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-zinc-400">
               {project.description}
             </p>
           ) : null}
-        </div>
-
-        <div className="mb-5 rounded-3xl border border-white/[0.07] bg-[#2b2b2b] p-4 shadow-lg shadow-black/10">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div>
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Project context</p>
-              <h2 className="mt-1 text-base font-semibold text-zinc-100">Instructions used in every project chat</h2>
-            </div>
-            <div className="rounded-full border border-white/[0.08] px-3 py-1 text-xs text-zinc-400">Saved</div>
-          </div>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <div className="rounded-2xl border border-white/[0.06] bg-black/15 p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-400">
-                <FileText className="h-3.5 w-3.5" />
-                Description
-              </div>
-              <p className="min-h-10 text-sm leading-6 text-zinc-300">
-                {project.description || "No description added yet."}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-white/[0.06] bg-black/15 p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-400">
-                <FileText className="h-3.5 w-3.5" />
-                Instructions
-              </div>
-              <p className="min-h-10 text-sm leading-6 text-zinc-300">
-                {project.instructions || "No project instructions added yet."}
-              </p>
-            </div>
-          </div>
         </div>
         
         <button 
@@ -163,6 +142,48 @@ export function ProjectDashboard({
           </div>
         )}
       </div>
+
+      {isSettingsOpen ? (
+        <div className="fixed inset-0 z-[90] flex justify-end bg-black/40 backdrop-blur-sm">
+          <aside className="h-full w-full max-w-md border-l border-white/[0.08] bg-[#202020] p-5 shadow-2xl">
+            <div className="mb-6 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">Project settings</p>
+                <h2 className="mt-1 text-xl font-semibold text-white">{project.name}</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSettingsOpen(false)}
+                className="rounded-lg p-1.5 text-zinc-400 transition hover:bg-white/[0.06] hover:text-white"
+                aria-label="Close project settings"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-white/[0.07] bg-black/15 p-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Description</p>
+                <p className="text-sm leading-6 text-zinc-300">{project.description || "No description added yet."}</p>
+              </div>
+
+              <div className="rounded-2xl border border-white/[0.07] bg-black/15 p-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Instructions</p>
+                <p className="whitespace-pre-wrap text-sm leading-6 text-zinc-300">
+                  {project.instructions || "No project instructions added yet."}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-white/[0.07] bg-black/15 p-4">
+                <p className="mb-2 text-xs font-medium uppercase tracking-[0.14em] text-zinc-500">Sources</p>
+                <p className="text-sm leading-6 text-zinc-400">
+                  Source management will connect project references, files, and assets without exposing backend details on the main dashboard.
+                </p>
+              </div>
+            </div>
+          </aside>
+        </div>
+      ) : null}
     </div>
   );
 }
