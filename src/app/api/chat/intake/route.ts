@@ -2,6 +2,7 @@ import { APP_CONFIG } from "@/lib/app-config";
 import { getActiveWorkspace } from "@/lib/auth/get-active-workspace";
 import type { ChatApiResponse, ChatRequest, JsonObject } from "@/lib/chat-types";
 import { normalizeWorkflowResponse } from "@/lib/normalize-workflow-response";
+import { buildPromptContextPack } from "@/lib/prompt-context-pack";
 import { createClient } from "@/lib/supabase/server";
 import { persistWorkflowContextSnapshot } from "@/lib/workflow-persistence";
 
@@ -24,6 +25,7 @@ type IntakePayload = {
       project_name: string;
       project_type: string;
     };
+    prompt_context_pack?: JsonObject;
     prompt_output_contract: typeof APP_CONFIG.promptOutputContract;
     temporary_expires_at?: string;
     ui_version: typeof APP_CONFIG.uiVersion;
@@ -210,6 +212,16 @@ export async function POST(request: Request) {
     return errorResponse(projectResolution.error === "project_not_found" ? 404 : 500, [projectResolution.error]);
   }
 
+  const supabase = await createClient();
+  const serializedProjectContext = serializeProjectContext(projectResolution.context) ?? null;
+  const promptContextPack = await buildPromptContextPack({
+    messageText,
+    outputType: null,
+    platform: null,
+    projectContext: serializedProjectContext,
+    supabase
+  });
+
   const temporaryExpiresAt = body.is_temporary ? getTemporaryExpiresAt() : null;
   const payload: IntakePayload = {
     workspace_id: activeWorkspace.workspace.id,
@@ -226,6 +238,7 @@ export async function POST(request: Request) {
             project_context: projectResolution.context
           }
         : {}),
+      prompt_context_pack: promptContextPack,
       prompt_output_contract: APP_CONFIG.promptOutputContract,
       ...(body.is_temporary
         ? {
@@ -254,7 +267,6 @@ export async function POST(request: Request) {
     const normalized = normalizeWorkflowResponse(upstreamJson);
 
     if (body.is_temporary && normalized.conversation_session_id) {
-      const supabase = await createClient();
       const expiresAt = temporaryExpiresAt ?? getTemporaryExpiresAt();
       const { data: existingSession } = await supabase
         .from("conversation_sessions")
@@ -277,11 +289,10 @@ export async function POST(request: Request) {
     }
 
     if (normalized.prompt_request_id) {
-      const supabase = await createClient();
       await persistWorkflowContextSnapshot({
         conversationSessionId: normalized.conversation_session_id ?? body.conversation_session_id ?? null,
         metadata: {
-          project_context: serializeProjectContext(projectResolution.context),
+          project_context: serializedProjectContext ?? undefined,
           prompt_output_contract: APP_CONFIG.promptOutputContract,
           source: APP_CONFIG.metadataSource,
           ui_version: APP_CONFIG.uiVersion
