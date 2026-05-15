@@ -5,6 +5,7 @@ add constraint projects_project_type_check
 check (
   project_type = any (
     array[
+      'workspace_project'::text,
       'single_prompt'::text,
       'creative_direction'::text,
       'art_direction'::text,
