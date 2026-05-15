@@ -29,6 +29,17 @@ type IntakePayload = {
 
 type ProjectContext = NonNullable<IntakePayload["metadata"]["project_context"]>;
 
+type ProjectContextResolution =
+  | {
+      context: ProjectContext | null;
+      ok: true;
+      projectId: string | null;
+    }
+  | {
+      error: "project_not_found" | "project_query_failed";
+      ok: false;
+    };
+
 function errorResponse(status: number, errors: string[]) {
   const body: ChatApiResponse = {
     ok: false,
@@ -97,10 +108,14 @@ async function parseResponseJson(response: Response) {
   }
 }
 
-async function getValidatedProjectContext(workspaceId: string, projectId: string | null) {
+async function getValidatedProjectContext(
+  workspaceId: string,
+  projectId: string | null
+): Promise<ProjectContextResolution> {
   if (!projectId) {
     return {
       context: null,
+      ok: true,
       projectId: null
     };
   }
@@ -115,13 +130,15 @@ async function getValidatedProjectContext(workspaceId: string, projectId: string
 
   if (error) {
     return {
-      error: "project_query_failed" as const
+      error: "project_query_failed",
+      ok: false
     };
   }
 
   if (!data || data.status === "deleted") {
     return {
-      error: "project_not_found" as const
+      error: "project_not_found",
+      ok: false
     };
   }
 
@@ -132,7 +149,8 @@ async function getValidatedProjectContext(workspaceId: string, projectId: string
       platforms: data.platforms ?? [],
       project_name: data.project_name,
       project_type: data.project_type
-    } satisfies ProjectContext,
+    },
+    ok: true,
     projectId
   };
 }
@@ -172,7 +190,7 @@ export async function POST(request: Request) {
 
   const projectResolution = await getValidatedProjectContext(activeWorkspace.workspace.id, body.project_id ?? null);
 
-  if ("error" in projectResolution) {
+  if (!projectResolution.ok) {
     return errorResponse(projectResolution.error === "project_not_found" ? 404 : 500, [projectResolution.error]);
   }
 
