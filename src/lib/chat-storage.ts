@@ -24,6 +24,7 @@ const LEGACY_PROJECT_STORAGE_KEY = "acd_os_projects_v1";
 export type StoredProject = {
   id: string;
   name: string;
+  description: string;
   instructions: string;
   createdAt: string;
   updatedAt: string;
@@ -97,6 +98,7 @@ export function loadStoredProjects(): StoredProject[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter(isStoredProject)
+      .map((project) => ({ ...project, description: project.description ?? "" }))
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } catch {
     return [];
