@@ -11,6 +11,7 @@ export type WorkflowRawResponse = unknown;
 export type ChatRequest = {
   message_text: string;
   conversation_session_id: string | null;
+  project_id?: string | null;
   is_temporary?: boolean;
 };
 
