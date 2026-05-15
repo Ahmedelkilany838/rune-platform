@@ -41,6 +41,7 @@ export type ProjectRow = {
   id: string;
   objective: string | null;
   platforms: string[];
+  project_instructions: string | null;
   project_name: string;
   project_type: string;
   status: string;
