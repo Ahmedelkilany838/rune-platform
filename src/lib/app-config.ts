@@ -6,7 +6,25 @@ export const APP_CONFIG = {
   metadataSource: "rune_frontend",
   maxMessageCharacters: 12000,
   promptOutputContract: {
+    appliesTo: "final_prompt_only",
+    minimumFinalPromptWords: 300,
     minimumPromptWords: 300,
+    requireDomainCoverage: true,
+    requiredVisualDomains: [
+      "lighting",
+      "shadow",
+      "camera",
+      "lens",
+      "composition",
+      "framing",
+      "color_palette",
+      "color_grading",
+      "materials",
+      "styling",
+      "retouching",
+      "mood",
+      "platform_parameters"
+    ],
     requireDetailedVisualSpecificity: true,
     requireAvoidConstraints: true,
     requirePlatformParameters: true
