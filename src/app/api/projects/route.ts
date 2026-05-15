@@ -27,8 +27,9 @@ type CreateProjectPayload = {
 
 const MAX_PROJECT_NAME_LENGTH = 120;
 const MAX_PROJECT_TEXT_LENGTH = 6000;
-const DEFAULT_PROJECT_TYPE = "creative_direction";
+const DEFAULT_PROJECT_TYPE = "workspace_project";
 const ALLOWED_PROJECT_TYPES = new Set([
+  "workspace_project",
   "single_prompt",
   "creative_direction",
   "art_direction",
