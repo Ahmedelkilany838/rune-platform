@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 type IntakePayload = {
   workspace_id: string;
   user_id: string;
-  project_id: null;
+  project_id: string | null;
   conversation_session_id: string | null;
   message_text: string;
   channel: typeof APP_CONFIG.intakeChannel;
@@ -15,10 +15,19 @@ type IntakePayload = {
   metadata: {
     source: typeof APP_CONFIG.metadataSource;
     is_temporary?: boolean;
+    project_context?: {
+      description: string | null;
+      objective: string | null;
+      platforms: string[];
+      project_name: string;
+      project_type: string;
+    };
     temporary_expires_at?: string;
     ui_version: typeof APP_CONFIG.uiVersion;
   };
 };
+
+type ProjectContext = NonNullable<IntakePayload["metadata"]["project_context"]>;
 
 function errorResponse(status: number, errors: string[]) {
   const body: ChatApiResponse = {
@@ -54,8 +63,12 @@ function isChatRequest(value: unknown): value is ChatRequest {
     candidate.conversation_session_id === null ||
     typeof candidate.conversation_session_id === "string" ||
     candidate.conversation_session_id === undefined;
+  const hasProject =
+    candidate.project_id === null ||
+    typeof candidate.project_id === "string" ||
+    candidate.project_id === undefined;
 
-  return hasMessage && hasSession;
+  return hasMessage && hasSession && hasProject;
 }
 
 function getTemporaryExpiresAt() {
@@ -82,6 +95,46 @@ async function parseResponseJson(response: Response) {
       raw_text_preview: text.slice(0, 500)
     };
   }
+}
+
+async function getValidatedProjectContext(workspaceId: string, projectId: string | null) {
+  if (!projectId) {
+    return {
+      context: null,
+      projectId: null
+    };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("projects")
+    .select("project_name, project_type, description, objective, platforms, status")
+    .eq("id", projectId)
+    .eq("workspace_id", workspaceId)
+    .maybeSingle();
+
+  if (error) {
+    return {
+      error: "project_query_failed" as const
+    };
+  }
+
+  if (!data || data.status === "deleted") {
+    return {
+      error: "project_not_found" as const
+    };
+  }
+
+  return {
+    context: {
+      description: data.description,
+      objective: data.objective,
+      platforms: data.platforms ?? [],
+      project_name: data.project_name,
+      project_type: data.project_type
+    } satisfies ProjectContext,
+    projectId
+  };
 }
 
 export async function POST(request: Request) {
@@ -117,17 +170,28 @@ export async function POST(request: Request) {
     return errorResponse(403, [activeWorkspace.error]);
   }
 
+  const projectResolution = await getValidatedProjectContext(activeWorkspace.workspace.id, body.project_id ?? null);
+
+  if ("error" in projectResolution) {
+    return errorResponse(projectResolution.error === "project_not_found" ? 404 : 500, [projectResolution.error]);
+  }
+
   const temporaryExpiresAt = body.is_temporary ? getTemporaryExpiresAt() : null;
   const payload: IntakePayload = {
     workspace_id: activeWorkspace.workspace.id,
     user_id: activeWorkspace.profile.id,
-    project_id: null,
+    project_id: projectResolution.projectId,
     conversation_session_id: body.conversation_session_id ?? null,
     message_text: body.message_text,
     channel: APP_CONFIG.intakeChannel,
     attachments: [],
     metadata: {
       source: APP_CONFIG.metadataSource,
+      ...(projectResolution.context
+        ? {
+            project_context: projectResolution.context
+          }
+        : {}),
       ...(body.is_temporary
         ? {
             is_temporary: true,
