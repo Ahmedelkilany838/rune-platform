@@ -165,8 +165,8 @@ export function Sidebar({
     }
   ];
 
-  // Split chat sessions by active project and exclude archived
-  const activeChats = chatSessions.filter(c => !c.isArchived);
+  const activeChats = chatSessions.filter((chat) => !chat.isArchived);
+  const recentChats = activeChats.filter((chat) => !chat.projectId);
   const getProjectChats = (projectId: string) => activeChats.filter((chat) => chat.projectId === projectId);
 
   useEffect(() => {
@@ -268,7 +268,7 @@ export function Sidebar({
           <ChatSessionList 
             title="Recent chats"
             activeChatId={activeChatId} 
-            sessions={activeChats} 
+            sessions={recentChats} 
             projects={projects}
             onSelectChat={onSelectChat} 
             onDeleteChat={onDeleteChat}
@@ -622,18 +622,14 @@ function ChatSessionRows({
                       setOpenMenuId(null);
                     } else {
                       const rect = e.currentTarget.getBoundingClientRect();
-                      // Drop down, but align the *left* edge of the menu with the *right* edge of the button (or just slightly offset)
-                      // so it opens outside the sidebar.
-                      setMenuPosition({ 
-                        top: rect.bottom + 4, 
-                        left: rect.left - 4 
-                      });
+                      setMenuPosition({ top: rect.bottom + 4, left: rect.left - 4 });
                       setOpenMenuId(session.id);
                     }
                     setShowProjectSubmenu(null);
                   }}
                   className="rounded-md p-1 text-zinc-400 transition-colors hover:bg-white/[0.08] hover:text-white"
                   title="More options"
+                  type="button"
                 >
                   <MoreHorizontal className="h-4 w-4" />
                 </button>
@@ -674,7 +670,6 @@ function ChatSessionRows({
                         <ChevronRight className="w-4 h-4 opacity-50" />
                       </button>
 
-                      {/* Projects Submenu */}
                       {showProjectSubmenu === session.id && (
                         <div className="absolute left-full top-0 ml-1 w-56 rounded-xl bg-[#262626] border border-white/[0.1] shadow-2xl py-1 animate-in fade-in slide-in-from-left-2 duration-150">
                           <button 
@@ -745,7 +740,6 @@ function ChatSessionRows({
         </div>
       ))}
 
-      {/* Custom Delete Confirmation Modal */}
       {chatToDelete && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setChatToDelete(null)}>
           <div 
