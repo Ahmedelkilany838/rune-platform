@@ -90,11 +90,11 @@ async function loadProjectsFromApi(): Promise<StoredProject[] | null> {
   }
 }
 
-async function createProjectFromApi(name: string, instructions: string): Promise<StoredProject> {
+async function createProjectFromApi(name: string, description: string, instructions: string): Promise<StoredProject> {
   const response = await fetch("/api/projects", {
     method: "POST",
     headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: JSON.stringify({ name, objective: instructions })
+    body: JSON.stringify({ name, description, instructions })
   });
   const result = (await response.json()) as CreateProjectApiResponse;
   if (!response.ok || !result.ok) throw new Error("project_create_failed");
@@ -303,9 +303,9 @@ export function AppShell({ user }: { user: AppUser }) {
     }
   }
 
-  async function handleCreateProject(name: string, instructions: string) {
+  async function handleCreateProject(name: string, description: string, instructions: string) {
     try {
-      const newProject = await createProjectFromApi(name, instructions);
+      const newProject = await createProjectFromApi(name, description, instructions);
       setProjects([newProject, ...projects.filter((project) => project.id !== newProject.id)]);
       setActiveProjectId(newProject.id);
       setIsProjectModalOpen(false);
@@ -314,7 +314,7 @@ export function AppShell({ user }: { user: AppUser }) {
       activeChatIdRef.current = null;
       updateUrl(null, newProject.id);
     } catch {
-      setComposerValue(`Create a project brief for ${name}. ${instructions}`.trim());
+      setComposerValue(`Create a project brief for ${name}. ${description} ${instructions}`.trim());
     }
   }
 
