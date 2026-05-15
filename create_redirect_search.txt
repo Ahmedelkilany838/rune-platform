@@ -1,4 +1,0 @@
-﻿D:\Ai\AI Creaive\Web\src\middleware.test.ts:36: const response = await middleware(request("/create"));
-D:\Ai\AI Creaive\Web\src\middleware.ts:4: const PROTECTED_PATHS = ["/create", "/chat", "/conversations", "/outputs"];
-D:\Ai\AI Creaive\Web\src\app\chat\page.tsx:4: redirect("/create");
-D:\Ai\AI Creaive\Web\src\components\app-shell.tsx:15: const APP_SHELL_BASE_ROUTES = ["/chat", "/create", "/conversations", "/outputs"] as const;
