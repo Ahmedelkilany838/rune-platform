@@ -29,6 +29,18 @@ type CreateProjectApiResponse =
   | { ok: true; project: StoredProject }
   | { error: string; ok: false };
 
+type UpdateConversationPayload = {
+  isArchived?: boolean;
+  isPinned?: boolean;
+  projectId?: string | null;
+  status?: "active" | "archived" | "deleted";
+  title?: string;
+};
+
+type UpdateConversationApiResponse =
+  | { ok: true; session: unknown }
+  | { error: string; ok: false };
+
 type ConversationMessagesApiResponse =
   | { messages: ChatMessage[]; ok: true }
   | { error: string; ok: false };
@@ -99,6 +111,16 @@ async function createProjectFromApi(name: string, description: string, instructi
   const result = (await response.json()) as CreateProjectApiResponse;
   if (!response.ok || !result.ok) throw new Error("project_create_failed");
   return result.project;
+}
+
+async function updateConversationSessionApi(sessionId: string, payload: UpdateConversationPayload) {
+  const response = await fetch(`/api/conversations/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const result = (await response.json()) as UpdateConversationApiResponse;
+  if (!response.ok || !result.ok) throw new Error(result.ok ? "conversation_update_failed" : result.error);
 }
 
 async function fetchConversationMessages(sessionId: string): Promise<ChatMessage[]> {
@@ -280,6 +302,22 @@ export function AppShell({ user }: { user: AppUser }) {
     saveStoredChatSessions(sortedSessions);
   }
 
+  function persistConversationMetadata(chatId: string, payload: UpdateConversationPayload) {
+    const session = chatSessionsRef.current.find((item) => sessionsMatch(item, chatId, chatId));
+    const sessionId = session?.conversationSessionId ?? session?.id ?? chatId;
+    void updateConversationSessionApi(sessionId, payload).catch(() => {
+      void reloadConversationSessions();
+    });
+  }
+
+  async function reloadConversationSessions() {
+    const apiSessions = await loadConversationSessionsFromApi();
+    if (!apiSessions) return;
+    chatSessionsRef.current = apiSessions;
+    setChatSessions(apiSessions);
+    saveStoredChatSessions(apiSessions);
+  }
+
   function sessionsMatch(session: StoredChatSession, chatId: string | null, conversationId: string | null) {
     return (Boolean(chatId) && session.id === chatId) || (Boolean(chatId) && session.conversationSessionId === chatId) || (Boolean(conversationId) && session.id === conversationId) || (Boolean(conversationId) && session.conversationSessionId === conversationId);
   }
@@ -370,6 +408,7 @@ export function AppShell({ user }: { user: AppUser }) {
   function handleDeleteChat(chatId: string) {
     const next = chatSessionsRef.current.filter((session) => !sessionsMatch(session, chatId, chatId));
     persistSessions(next);
+    persistConversationMetadata(chatId, { status: "deleted" });
     if (activeChatId === chatId) {
       if (activeProjectId) {
         clearChatView({ keepProject: true });
@@ -386,18 +425,26 @@ export function AppShell({ user }: { user: AppUser }) {
     const trimmedTitle = newTitle.trim();
     if (!trimmedTitle) return;
     persistSessions(chatSessionsRef.current.map((session) => (sessionsMatch(session, chatId, chatId) ? { ...session, title: trimmedTitle, updatedAt: new Date().toISOString() } : session)));
+    persistConversationMetadata(chatId, { title: trimmedTitle });
   }
 
   function handleMoveChat(chatId: string, newProjectId: string | null) {
     persistSessions(chatSessionsRef.current.map((session) => (sessionsMatch(session, chatId, chatId) ? { ...session, projectId: newProjectId, updatedAt: new Date().toISOString() } : session)));
+    persistConversationMetadata(chatId, { projectId: newProjectId });
   }
 
   function handleTogglePinChat(chatId: string) {
-    persistSessions(chatSessionsRef.current.map((session) => (sessionsMatch(session, chatId, chatId) ? { ...session, isPinned: !session.isPinned, updatedAt: new Date().toISOString() } : session)));
+    const targetSession = chatSessionsRef.current.find((session) => sessionsMatch(session, chatId, chatId));
+    const nextPinned = !targetSession?.isPinned;
+    persistSessions(chatSessionsRef.current.map((session) => (sessionsMatch(session, chatId, chatId) ? { ...session, isPinned: nextPinned, updatedAt: new Date().toISOString() } : session)));
+    persistConversationMetadata(chatId, { isPinned: nextPinned });
   }
 
   function handleToggleArchiveChat(chatId: string) {
-    persistSessions(chatSessionsRef.current.map((session) => (sessionsMatch(session, chatId, chatId) ? { ...session, isArchived: !session.isArchived, updatedAt: new Date().toISOString() } : session)));
+    const targetSession = chatSessionsRef.current.find((session) => sessionsMatch(session, chatId, chatId));
+    const nextArchived = !targetSession?.isArchived;
+    persistSessions(chatSessionsRef.current.map((session) => (sessionsMatch(session, chatId, chatId) ? { ...session, isArchived: nextArchived, updatedAt: new Date().toISOString() } : session)));
+    persistConversationMetadata(chatId, { isArchived: nextArchived, status: nextArchived ? "archived" : "active" });
     if (activeChatId === chatId) {
       clearChatView({ keepProject: Boolean(activeProjectId) });
       if (activeProjectId) {

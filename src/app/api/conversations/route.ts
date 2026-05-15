@@ -11,6 +11,7 @@ type ConversationSessionListRow = {
   id: string;
   metadata: JsonObject | null;
   project_id: string | null;
+  status: string;
   summary: string | null;
   updated_at: string;
 };
@@ -55,7 +56,7 @@ function mapConversationSession(
     latestResponse: null,
     projectId: row.project_id,
     isPinned: getBooleanMetadataValue(row.metadata, "isPinned"),
-    isArchived: getBooleanMetadataValue(row.metadata, "isArchived"),
+    isArchived: row.status === "archived" || getBooleanMetadataValue(row.metadata, "isArchived"),
     isTemporary: isTemporarySession(row.metadata),
     temporaryExpiresAt: getTemporaryExpiresAt(row.metadata)
   };
@@ -73,8 +74,9 @@ export async function GET() {
   const nowIso = new Date().toISOString();
   const { data, error } = await supabase
     .from("conversation_sessions")
-    .select("id, project_id, summary, metadata, created_at, updated_at")
+    .select("id, project_id, summary, metadata, status, created_at, updated_at")
     .eq("workspace_id", activeWorkspace.workspace.id)
+    .neq("status", "deleted")
     .order("updated_at", { ascending: false })
     .limit(50);
 
