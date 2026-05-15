@@ -19,6 +19,7 @@ type IntakePayload = {
       description: string | null;
       objective: string | null;
       platforms: string[];
+      project_instructions: string | null;
       project_name: string;
       project_type: string;
     };
@@ -123,7 +124,7 @@ async function getValidatedProjectContext(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
-    .select("project_name, project_type, description, objective, platforms, status")
+    .select("project_name, project_type, description, objective, project_instructions, platforms, status")
     .eq("id", projectId)
     .eq("workspace_id", workspaceId)
     .maybeSingle();
@@ -147,6 +148,7 @@ async function getValidatedProjectContext(
       description: data.description,
       objective: data.objective,
       platforms: data.platforms ?? [],
+      project_instructions: data.project_instructions,
       project_name: data.project_name,
       project_type: data.project_type
     },
