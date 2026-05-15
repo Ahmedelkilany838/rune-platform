@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getActiveWorkspace } from "@/lib/auth/get-active-workspace";
 import { createClient } from "@/lib/supabase/server";
+import { persistGeneratedOutputEnforcement } from "@/lib/workflow-persistence";
 
 type UnknownRecord = Record<string, unknown>;
 
@@ -191,6 +192,27 @@ async function findPromptRequestForSubmittedMessage(
   return { error: null, promptRequestId: matchingRow.id, status: 200 };
 }
 
+async function persistAndReturnOutput({
+  conversationSessionId,
+  output,
+  supabase,
+  workspaceId
+}: {
+  conversationSessionId: string | null;
+  output: GeneratedOutputRow;
+  supabase: Awaited<ReturnType<typeof createClient>>;
+  workspaceId: string;
+}) {
+  await persistGeneratedOutputEnforcement({
+    conversationSessionId,
+    output,
+    supabase,
+    workspaceId
+  });
+
+  return NextResponse.json({ ok: true, output });
+}
+
 export async function POST(request: Request) {
   const body = await readJson(request);
 
@@ -217,7 +239,7 @@ export async function POST(request: Request) {
   if (generatedOutputId) {
     const result = await getOutputById(supabase, generatedOutputId, workspaceId);
     if (result.output) {
-      return NextResponse.json({ ok: true, output: result.output });
+      return persistAndReturnOutput({ conversationSessionId, output: result.output, supabase, workspaceId });
     }
     return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
   }
@@ -225,7 +247,7 @@ export async function POST(request: Request) {
   if (promptRequestId) {
     const result = await getLatestOutputForPromptRequest(supabase, promptRequestId, workspaceId);
     if (result.output) {
-      return NextResponse.json({ ok: true, output: result.output });
+      return persistAndReturnOutput({ conversationSessionId, output: result.output, supabase, workspaceId });
     }
     return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
   }
@@ -252,5 +274,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: outputResult.error }, { status: outputResult.status });
   }
 
-  return NextResponse.json({ ok: true, output: outputResult.output });
+  return persistAndReturnOutput({ conversationSessionId, output: outputResult.output, supabase, workspaceId });
 }
