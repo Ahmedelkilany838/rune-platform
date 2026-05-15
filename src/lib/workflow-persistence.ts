@@ -37,6 +37,22 @@ type PersistGeneratedOutputArgs = {
   workspaceId: string;
 };
 
+const VISUAL_DOMAIN_PATTERNS: Record<string, RegExp[]> = {
+  lighting: [/\blight(?:ing)?\b/i, /\bkey light\b/i, /\bsoftbox\b/i, /\bambient\b/i, /\bexposure\b/i],
+  shadow: [/\bshadow\b/i, /\bcontrast\b/i, /\bfalloff\b/i, /\bocclusion\b/i],
+  camera: [/\bcamera\b/i, /\bsensor\b/i, /\bshot on\b/i, /\bphotographed\b/i],
+  lens: [/\blens\b/i, /\bfocal length\b/i, /\b\d{2,3}mm\b/i, /\bdepth of field\b/i, /\bbokeh\b/i],
+  composition: [/\bcomposition\b/i, /\brule of thirds\b/i, /\bnegative space\b/i, /\bsymmetry\b/i],
+  framing: [/\bframing\b/i, /\bclose-up\b/i, /\bwide shot\b/i, /\bhero angle\b/i, /\bcrop\b/i],
+  color_palette: [/\bpalette\b/i, /\bcolor palette\b/i, /\btones?\b/i, /\bhue\b/i],
+  color_grading: [/\bcolor grading\b/i, /\bgrade\b/i, /\btonal\b/i, /\bfilm look\b/i],
+  materials: [/\bmaterial\b/i, /\btexture\b/i, /\bmetal\b/i, /\bglass\b/i, /\bplastic\b/i, /\bfabric\b/i, /\bfinish\b/i],
+  styling: [/\bstyling\b/i, /\bwardrobe\b/i, /\bprops?\b/i, /\bset design\b/i],
+  retouching: [/\bretouch(?:ing)?\b/i, /\bskin detail\b/i, /\bclean-up\b/i, /\bpost-production\b/i],
+  mood: [/\bmood\b/i, /\batmosphere\b/i, /\bemotion\b/i, /\bfeeling\b/i],
+  platform_parameters: [/\baspect ratio\b/i, /\bseed\b/i, /\bquality\b/i, /\bresolution\b/i, /\bplatform\b/i, /\bparameters\b/i]
+};
+
 function isJsonObject(value: unknown): value is JsonObject {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -54,29 +70,48 @@ function hasNonEmptyJsonObject(value: unknown) {
   return isJsonObject(value) && Object.keys(value).length > 0;
 }
 
+function getCoveredVisualDomains(finalPrompt: string | null) {
+  const prompt = finalPrompt ?? "";
+  return APP_CONFIG.promptOutputContract.requiredVisualDomains.filter((domain) => {
+    const patterns = VISUAL_DOMAIN_PATTERNS[domain] ?? [new RegExp(`\\b${domain.replace(/_/g, " ")}\\b`, "i")];
+    return patterns.some((pattern) => pattern.test(prompt));
+  });
+}
+
 function buildOutputValidationSnapshot(output: GeneratedOutputLike) {
-  const minimumPromptWords = APP_CONFIG.promptOutputContract.minimumPromptWords;
-  const wordCount = countWords(output.final_prompt);
+  const minimumFinalPromptWords = APP_CONFIG.promptOutputContract.minimumFinalPromptWords;
+  const finalPromptWordCount = countWords(output.final_prompt);
   const hasAvoidConstraints = Boolean(output.avoid_constraints?.trim());
   const hasPlatformParameters = hasNonEmptyJsonObject(output.platform_parameters);
   const hasStructuredOutput = hasNonEmptyJsonObject(output.structured_output);
-  const passesMinimumWordCount = wordCount >= minimumPromptWords;
+  const coveredVisualDomains = getCoveredVisualDomains(output.final_prompt);
+  const missingVisualDomains = APP_CONFIG.promptOutputContract.requiredVisualDomains.filter(
+    (domain) => !coveredVisualDomains.includes(domain)
+  );
+  const passesMinimumFinalPromptWordCount = finalPromptWordCount >= minimumFinalPromptWords;
+  const passesDomainCoverage =
+    !APP_CONFIG.promptOutputContract.requireDomainCoverage || missingVisualDomains.length === 0;
   const passesContract =
-    passesMinimumWordCount &&
+    passesMinimumFinalPromptWordCount &&
+    passesDomainCoverage &&
     (!APP_CONFIG.promptOutputContract.requireAvoidConstraints || hasAvoidConstraints) &&
     (!APP_CONFIG.promptOutputContract.requirePlatformParameters || hasPlatformParameters) &&
     hasStructuredOutput;
 
   return {
+    applies_to: APP_CONFIG.promptOutputContract.appliesTo,
     checked_at: new Date().toISOString(),
     contract: APP_CONFIG.promptOutputContract,
+    covered_visual_domains: coveredVisualDomains,
+    final_prompt_word_count: finalPromptWordCount,
     has_avoid_constraints: hasAvoidConstraints,
     has_platform_parameters: hasPlatformParameters,
     has_structured_output: hasStructuredOutput,
-    minimum_prompt_words: minimumPromptWords,
+    minimum_final_prompt_words: minimumFinalPromptWords,
+    missing_visual_domains: missingVisualDomains,
     passes_contract: passesContract,
-    passes_minimum_word_count: passesMinimumWordCount,
-    prompt_word_count: wordCount,
+    passes_domain_coverage: passesDomainCoverage,
+    passes_minimum_final_prompt_word_count: passesMinimumFinalPromptWordCount,
     source: "rune_frontend_enforcement"
   } satisfies JsonObject;
 }
