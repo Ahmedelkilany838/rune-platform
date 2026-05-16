@@ -1,0 +1,191 @@
+{
+  "name": "SW-00A Input Normalizer Agent",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "8ee45a25-3ef5-4df4-aaf8-6bdf3ebbf770",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        2320,
+        -432
+      ],
+      "notesInFlow": false
+    },
+    {
+      "parameters": {
+        "jsCode": "function asArray(value) {\n  if (!value) return [];\n  return Array.isArray(value) ? value : [value];\n}\nfunction pick(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null) return value;\n  }\n  return null;\n}\nfunction compactMessages(messages) {\n  return asArray(messages).slice(-10).map(m => ({\n    sender: String(m.sender ?? ''),\n    message_text: String(m.message_text ?? m.text ?? ''),\n    message_type: String(m.message_type ?? 'text'),\n    created_at: m.created_at ?? null\n  }));\n}\nfunction hasLettersOrNumbers(text) {\n  return /[\\p{L}\\p{N}]/u.test(text || '');\n}\nconst raw = $json || {};\nconst messageValue = pick(raw.message_text, raw.raw_message_text, raw.input?.message_text, raw.chatInput, '');\nconst message_text = String(messageValue ?? '');\nconst media = raw.media || {};\nconst incomingAttachmentsSummary = raw.attachments_summary || raw.attachmentsSummary || {\n  has_attachments: Boolean(media.has_attachments) || asArray(raw.attachments).length > 0,\n  attachment_count: Number(media.attachment_count ?? asArray(raw.attachments).length ?? 0),\n  attachment_kinds: asArray(media.attachment_kinds ?? media.kinds ?? [])\n};\nconst attachments_summary = {\n  has_attachments: Boolean(incomingAttachmentsSummary.has_attachments),\n  attachment_count: Number(incomingAttachmentsSummary.attachment_count ?? 0),\n  attachment_kinds: asArray(incomingAttachmentsSummary.attachment_kinds).map(String)\n};\nconst memorySource = raw.conversation_memory || raw.memory || {};\nconst recentMessages = compactMessages(memorySource.last_messages || raw.last_messages || []);\nconst trimmed = message_text.trim();\nconst local_empty_text = trimmed.length === 0;\nconst local_noise_only = !attachments_summary.has_attachments && trimmed.length > 0 && !hasLettersOrNumbers(trimmed);\nconst local_attachment_only = attachments_summary.has_attachments && trimmed.length === 0;\nreturn [{\n  json: {\n    message_text,\n    channel: String(raw.channel ?? ''),\n    attachments_summary,\n    conversation_memory: {\n      last_messages: recentMessages\n    },\n    metadata: {\n      conversation_session_id: raw.metadata?.conversation_session_id ?? raw.conversation_session_id ?? null,\n      workspace_id: raw.metadata?.workspace_id ?? raw.workspace_id ?? null,\n      user_id: raw.metadata?.user_id ?? raw.user_id ?? null,\n      project_id: raw.metadata?.project_id ?? raw.project_id ?? null\n    },\n    local_input_check: {\n      empty_text: local_empty_text,\n      noise_only: local_noise_only,\n      attachment_only: local_attachment_only,\n      has_letters_or_numbers: hasLettersOrNumbers(trimmed),\n      should_treat_as_empty_or_noise_if_no_ai: !local_attachment_only && (local_empty_text || local_noise_only)\n    }\n  }\n}];"
+      },
+      "id": "a2535da1-138f-4521-b532-08aff7a0d6f1",
+      "name": "Validate Input Shape",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2560,
+        -432
+      ],
+      "notesInFlow": true,
+      "notes": "Validates and standardizes input only. No Supabase reads/writes."
+    },
+    {
+      "parameters": {
+        "jsCode": "const prepared = {\n  raw_message_text: $json.message_text,\n  attachments_summary: $json.attachments_summary,\n  recent_conversation_messages: $json.conversation_memory?.last_messages || [],\n  local_input_check: $json.local_input_check\n};\nreturn [{ json: { ...$json, openai_input: prepared } }];"
+      },
+      "id": "ced2f04c-63da-4342-8015-653f9ede39cd",
+      "name": "Prepare OpenAI Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2800,
+        -432
+      ],
+      "notesInFlow": true,
+      "notes": "Builds the small OpenAI payload. Does not pass database rows or memory_packet."
+    },
+    {
+      "parameters": {
+        "jsCode": "function originalInput() {\n  try {\n    return $('Validate Input Shape').first().json;\n  } catch (e) {\n    return {};\n  }\n}\n\nfunction extractText(obj) {\n  if (typeof obj === 'string') return obj;\n\n  if (Array.isArray(obj?.output)) {\n    const first = obj.output[0];\n\n    if (typeof first === 'string') return first;\n\n    if (typeof first?.content === 'string') return first.content;\n\n    if (Array.isArray(first?.content)) {\n      const c0 = first.content[0];\n\n      if (typeof c0 === 'string') return c0;\n      if (typeof c0?.text === 'string') return c0.text;\n      if (typeof c0?.text?.message === 'string') return c0.text.message;\n      if (typeof c0?.message === 'string') return c0.message;\n    }\n\n    if (typeof first?.text === 'string') return first.text;\n    if (typeof first?.message === 'string') return first.message;\n    if (typeof first?.message?.content === 'string') return first.message.content;\n  }\n\n  if (typeof obj?.output === 'string') return obj.output;\n  if (typeof obj?.text === 'string') return obj.text;\n  if (typeof obj?.content === 'string') return obj.content;\n  if (typeof obj?.message?.content === 'string') return obj.message.content;\n  if (typeof obj?.choices?.[0]?.message?.content === 'string') return obj.choices[0].message.content;\n  if (typeof obj?.data?.choices?.[0]?.message?.content === 'string') return obj.data.choices[0].message.content;\n  if (typeof obj?.response?.body?.choices?.[0]?.message?.content === 'string') return obj.response.body.choices[0].message.content;\n\n  return JSON.stringify(obj);\n}\n\nfunction parseJsonLoose(value) {\n  if (!value) return null;\n\n  if (typeof value === 'object' && !Array.isArray(value)) return value;\n\n  const text = String(value);\n\n  try {\n    return JSON.parse(text);\n  } catch (e) {}\n\n  const fenced = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\n  if (fenced) {\n    try {\n      return JSON.parse(fenced[1]);\n    } catch (e) {}\n  }\n\n  const start = text.indexOf('{');\n  const end = text.lastIndexOf('}');\n\n  if (start >= 0 && end > start) {\n    try {\n      return JSON.parse(text.slice(start, end + 1));\n    } catch (e) {}\n  }\n\n  return null;\n}\n\nfunction hasLettersOrNumbers(text) {\n  return /[\\p{L}\\p{N}]/u.test(text || '');\n}\n\nfunction detectLocalLanguage(text) {\n  const raw = String(text || '');\n  const arabicMatches = raw.match(/[\\u0600-\\u06FF]/g) || [];\n  const englishMatches = raw.match(/[A-Za-z]/g) || [];\n\n  const ar = arabicMatches.length;\n  const en = englishMatches.length;\n\n  if (ar > 0 && en > 0) return 'mixed';\n  if (ar > 0 && en === 0) return 'ar-EG';\n  if (en > 0 && ar === 0) return 'en';\n\n  return 'other';\n}\n\nfunction fallbackResult(base, status, error, summaryOverride = null) {\n  const local = base.local_input_check || {};\n  const attachments = base.attachments_summary || {};\n  const rawInput = String(base.message_text ?? '');\n\n  const localLanguage = detectLocalLanguage(rawInput);\n\n  const attachmentOnly = Boolean(\n    local.attachment_only ||\n    (attachments.has_attachments && rawInput.trim() === '')\n  );\n\n  const emptyOrNoise = attachmentOnly\n    ? false\n    : Boolean(\n        local.should_treat_as_empty_or_noise_if_no_ai ||\n        rawInput.trim() === '' ||\n        !hasLettersOrNumbers(rawInput.trim())\n      );\n\n  let normalized = '';\n  let summary = summaryOverride || 'Input normalization failed.';\n\n  if (attachmentOnly) {\n    const kinds =\n      Array.isArray(attachments.attachment_kinds) && attachments.attachment_kinds.length\n        ? attachments.attachment_kinds.join(', ')\n        : 'media';\n\n    normalized = `The user sent ${kinds} attachment(s) without accompanying text.`;\n    summary = `User sent ${kinds} attachment(s) without text.`;\n  } else if (rawInput.trim() === '') {\n    summary = 'Empty user message.';\n  } else if (emptyOrNoise) {\n    summary = 'Noise-only message with no clear user request.';\n  }\n\n  return {\n    detected_language: localLanguage,\n    reply_language: localLanguage,\n    raw_input: rawInput,\n    normalized_english_input: status === 'failed' ? '' : normalized,\n    message_summary_english: summary,\n    is_empty_or_noise: emptyOrNoise,\n    normalization_status: status,\n    normalization_error: error\n  };\n}\n\nfunction asBool(v) {\n  return v === true || v === 'true';\n}\n\nconst base = originalInput();\nconst rawText = extractText($json);\nconst parsed = parseJsonLoose(rawText);\n\nif (!parsed || typeof parsed !== 'object') {\n  return [\n    {\n      json: fallbackResult(base, 'failed', 'json_parse_failed')\n    }\n  ];\n}\n\nconst allowedLanguages = new Set(['ar-EG', 'ar-Gulf', 'en', 'mixed', 'other']);\nconst allowedStatuses = new Set(['success', 'failed', 'fallback']);\n\nconst originalRaw = String(base.message_text ?? '');\nconst localLanguage = detectLocalLanguage(originalRaw);\n\nlet status = String(parsed.normalization_status ?? 'success');\nlet error = parsed.normalization_error ?? null;\nlet repaired = false;\nlet repairReasons = [];\n\nlet detected_language = String(parsed.detected_language ?? '').trim();\n\nif (!allowedLanguages.has(detected_language)) {\n  detected_language = localLanguage;\n  repaired = true;\n  repairReasons.push('invalid_detected_language');\n}\n\nlet reply_language = String(parsed.reply_language ?? '').trim();\n\nif (!allowedLanguages.has(reply_language)) {\n  reply_language = detected_language;\n  repaired = true;\n  repairReasons.push('invalid_reply_language');\n}\n\nlet raw_input = String(parsed.raw_input ?? '');\n\nif (raw_input !== originalRaw) {\n  raw_input = originalRaw;\n  repaired = true;\n  repairReasons.push('raw_input_mismatch_corrected');\n}\n\nlet normalized_english_input = String(parsed.normalized_english_input ?? '');\nlet message_summary_english = String(parsed.message_summary_english ?? '');\nlet is_empty_or_noise = asBool(parsed.is_empty_or_noise);\n\nif (!message_summary_english) {\n  message_summary_english = originalRaw.trim()\n    ? 'User message normalized for intake.'\n    : 'Empty user message.';\n\n  repaired = true;\n  repairReasons.push('missing_message_summary_english');\n}\n\nif (!allowedStatuses.has(status)) {\n  status = 'fallback';\n  repaired = true;\n  repairReasons.push('invalid_normalization_status');\n}\n\nif (repaired && status === 'success') status = 'fallback';\nif (repaired && !error) error = repairReasons.join(',');\n\nif (status === 'failed') {\n  normalized_english_input = '';\n  if (!error) error = 'normalization_failed';\n}\n\nreturn [\n  {\n    json: {\n      detected_language,\n      reply_language,\n      raw_input,\n      normalized_english_input,\n      message_summary_english,\n      is_empty_or_noise,\n      normalization_status: status,\n      normalization_error: error\n    }\n  }\n];"
+      },
+      "id": "909ca1bf-7363-4573-b738-4f8b47e30a06",
+      "name": "Parse and Validate Normalizer JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3328,
+        -432
+      ],
+      "notesInFlow": true,
+      "notes": "Enforces the approved contract and corrected fallback: normalized_english_input is empty on json_parse_failed."
+    },
+    {
+      "parameters": {
+        "jsCode": "const allowedKeys = [\n  'detected_language',\n  'reply_language',\n  'raw_input',\n  'normalized_english_input',\n  'message_summary_english',\n  'is_empty_or_noise',\n  'normalization_status',\n  'normalization_error'\n];\nconst out = {};\nfor (const key of allowedKeys) out[key] = $json[key];\nreturn [{ json: out }];"
+      },
+      "id": "f3a5e46a-b9a9-46ea-addf-44abfe553e68",
+      "name": "Return Normalized Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3568,
+        -432
+      ],
+      "notesInFlow": true,
+      "notes": "Returns only the approved SW-00A output contract."
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "={{ JSON.stringify($json.openai_input) }}"
+            },
+            {
+              "role": "system",
+              "content": "You are SW-00A Input Normalizer Agent for AI Creative Direction OS.\n\nYour only job is to:\n1. Detect the user's language.\n2. Preserve the raw user input exactly.\n3. Normalize the user message into professional English.\n4. Summarize the message for memory.\n5. Detect empty/noise input.\n\nReturn ONLY valid strict JSON.\nNo markdown.\nNo prose.\nNo comments.\nNo extra keys.\n\nRequired JSON schema exactly:\n\n{\n  \"detected_language\": \"ar-EG | ar-Gulf | en | mixed | other\",\n  \"reply_language\": \"ar-EG | ar-Gulf | en | mixed | other\",\n  \"raw_input\": \"original user message exactly\",\n  \"normalized_english_input\": \"professional English version of user intent\",\n  \"message_summary_english\": \"short memory-friendly English summary\",\n  \"is_empty_or_noise\": false,\n  \"normalization_status\": \"success | failed | fallback\",\n  \"normalization_error\": null\n}\n\nAllowed values for detected_language:\n- ar-EG\n- ar-Gulf\n- en\n- mixed\n- other\n\nAllowed values for reply_language:\n- ar-EG\n- ar-Gulf\n- en\n- mixed\n- other\n\nRules:\n- raw_input must equal raw_message_text exactly, character-for-character.\n- reply_language must be one of the allowed enum values only.\n- Do not return free text like \"English\", \"Arabic\", or \"Egyptian Arabic\".\n- normalized_english_input must be professional English.\n- normalized_english_input must NOT be a final creative prompt.\n- message_summary_english must be one short memory-friendly English sentence.\n- If the text is empty but image/audio/media attachments exist, do not mark it as noise.\n- If the text is empty and there are no attachments, set is_empty_or_noise to true.\n- If the text is emoji-only, punctuation-only, random characters, or has no clear request and no attachments, set is_empty_or_noise to true.\n- For normal successful results, set normalization_status to \"success\".\n- For normal successful results, set normalization_error to null.\n\nLanguage detection guidance:\n- Egyptian Arabic → ar-EG\n- Gulf Arabic → ar-Gulf\n- English → en\n- Mixed Arabic and English → mixed\n- Unclear or unsupported language → other\n\nDo NOT do any of the following:\n- Do not classify intent.\n- Do not classify route.\n- Do not select platform.\n- Do not select model.\n- Do not create prompt_requests.\n- Do not compose a user-facing response.\n- Do not generate a final creative prompt.\n- Do not analyze references.\n- Do not analyze products.\n- Do not analyze characters.\n- Do not perform database logic.\n- Do not mention workflow names.\n- Do not ask clarifying questions.\n\nInput format:\nYou will receive a JSON object from the previous node with:\n- raw_message_text\n- attachments_summary\n- recent_conversation_messages\n- local_input_check\n\nOutput must be the strict JSON object only."
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_schema"
+            }
+          }
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.1,
+      "position": [
+        3008,
+        -432
+      ],
+      "id": "4c6b4862-085c-49cf-9bf6-70f86d9205e3",
+      "name": "OpenAI Input Normalization Call",
+      "credentials": {
+        "openAiApi": {
+          "id": "UyGBYvdMSrJClgvz",
+          "name": "OpenAI account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Input Shape",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input Shape": {
+      "main": [
+        [
+          {
+            "node": "Prepare OpenAI Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse and Validate Normalizer JSON": {
+      "main": [
+        [
+          {
+            "node": "Return Normalized Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare OpenAI Input": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Input Normalization Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Input Normalization Call": {
+      "main": [
+        [
+          {
+            "node": "Parse and Validate Normalizer JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "c5a06739-5c75-4da8-be30-f693e502fcf9",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "078ebb9a69bf38cf4453fd8eeb25933e0bb708831adc9bbc920c51805e3f39df"
+  },
+  "id": "eButVjP5mgOMf0xW",
+  "tags": []
+}

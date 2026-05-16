@@ -1,0 +1,214 @@
+{
+  "name": "SW-00D Response Composer Agent",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "4568fd24-125d-4993-90a0-01004a7ecfcb",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        1712,
+        432
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function pick(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null) return value;\n  }\n  return null;\n}\nfunction asArray(value) {\n  if (!value) return [];\n  return Array.isArray(value) ? value : [value];\n}\nfunction toBool(value) {\n  return value === true || value === 'true';\n}\nfunction compactMessages(messages) {\n  return asArray(messages).slice(-10).map(m => ({\n    sender: String(m.sender ?? ''),\n    message_text: String(m.message_text ?? m.text ?? ''),\n    message_type: String(m.message_type ?? 'text'),\n    created_at: m.created_at ?? null\n  }));\n}\nconst raw = $json || {};\n\nconst normalizedSource = pick(\n  raw.normalized_input,\n  raw.normalizedInput,\n  raw.sw00a_result,\n  raw.sw00aResult,\n  raw.input?.normalized_input,\n  raw.input?.sw00a_result,\n  raw\n) || {};\n\nconst routerSource = pick(\n  raw.router_result,\n  raw.routerResult,\n  raw.sw00b_result,\n  raw.sw00bResult,\n  raw.intent_router_result,\n  raw.intentRouterResult,\n  raw.input?.router_result,\n  raw.input?.sw00b_result,\n  raw\n) || {};\n\nconst briefSource = pick(\n  raw.brief_decision_result,\n  raw.briefDecisionResult,\n  raw.sw00c_result,\n  raw.sw00cResult,\n  raw.brief_result,\n  raw.briefResult,\n  raw.input?.brief_decision_result,\n  raw.input?.sw00c_result,\n  {}\n) || {};\n\nconst orchestrationSource = pick(\n  raw.orchestration_status,\n  raw.orchestrationStatus,\n  raw.workflow_status,\n  raw.workflowStatus,\n  raw.pipeline_status,\n  raw.pipelineStatus,\n  raw.input?.orchestration_status,\n  {}\n) || {};\n\nconst normalized_input = {\n  detected_language: String(pick(normalizedSource.detected_language, raw.detected_language, 'other')),\n  reply_language: String(pick(normalizedSource.reply_language, raw.reply_language, 'other')),\n  raw_input: String(pick(normalizedSource.raw_input, raw.raw_input, raw.message_text, raw.chatInput, '')),\n  normalized_english_input: String(pick(normalizedSource.normalized_english_input, raw.normalized_english_input, '')),\n  message_summary_english: String(pick(normalizedSource.message_summary_english, raw.message_summary_english, '')),\n  is_empty_or_noise: toBool(pick(normalizedSource.is_empty_or_noise, raw.is_empty_or_noise, false)),\n  normalization_status: String(pick(normalizedSource.normalization_status, raw.normalization_status, 'success')),\n  normalization_error: pick(normalizedSource.normalization_error, raw.normalization_error, null)\n};\n\nconst router_result = {\n  intent: String(pick(routerSource.intent, raw.intent, 'unsupported')),\n  route: String(pick(routerSource.route, raw.route, 'unsupported')),\n  confidence: Number(pick(routerSource.confidence, raw.confidence, 0)),\n  needs_prompt_request: toBool(pick(routerSource.needs_prompt_request, raw.needs_prompt_request, false)),\n  needs_media_processing: toBool(pick(routerSource.needs_media_processing, raw.needs_media_processing, false)),\n  needs_clarification: toBool(pick(routerSource.needs_clarification, raw.needs_clarification, false)),\n  reasoning_summary: String(pick(routerSource.reasoning_summary, raw.reasoning_summary, '')),\n  unsupported_reason: pick(routerSource.unsupported_reason, raw.unsupported_reason, null)\n};\n\nconst brief_decision_result = {\n  can_create_prompt_request: toBool(pick(briefSource.can_create_prompt_request, raw.can_create_prompt_request, false)),\n  output_type: pick(briefSource.output_type, raw.output_type, null),\n  output_type_confidence: Number(pick(briefSource.output_type_confidence, raw.output_type_confidence, 0)),\n  platform: pick(briefSource.platform, raw.platform, null),\n  platform_confidence: Number(pick(briefSource.platform_confidence, raw.platform_confidence, 0)),\n  brief_title: pick(briefSource.brief_title, raw.brief_title, null),\n  brief_summary: String(pick(briefSource.brief_summary, raw.brief_summary, '')),\n  missing_critical_fields: asArray(pick(briefSource.missing_critical_fields, raw.missing_critical_fields, [])),\n  clarification_question: pick(briefSource.clarification_question, raw.clarification_question, null),\n  meaningful_decisions: asArray(pick(briefSource.meaningful_decisions, raw.meaningful_decisions, [])),\n  status_recommendation: String(pick(briefSource.status_recommendation, raw.status_recommendation, 'unsupported')),\n  reasoning_summary: String(pick(briefSource.reasoning_summary, raw.brief_reasoning_summary, ''))\n};\n\nconst attachmentsSource = pick(\n  raw.attachments_summary,\n  raw.attachmentsSummary,\n  normalizedSource.attachments_summary,\n  normalizedSource.attachmentsSummary,\n  raw.media,\n  {}\n) || {};\n\nconst attachments_summary = {\n  has_attachments: toBool(pick(attachmentsSource.has_attachments, attachmentsSource.hasAttachments, false)),\n  attachment_count: Number(pick(attachmentsSource.attachment_count, attachmentsSource.attachmentCount, 0)),\n  attachment_kinds: asArray(pick(attachmentsSource.attachment_kinds, attachmentsSource.attachmentKinds, attachmentsSource.kinds, [])).map(String)\n};\n\nconst memorySource = pick(raw.conversation_memory, raw.memory, raw.input?.conversation_memory, {}) || {};\nconst conversation_memory = {\n  last_messages: compactMessages(pick(memorySource.last_messages, raw.last_messages, [])),\n  recent_prompt_requests: asArray(pick(memorySource.recent_prompt_requests, raw.recent_prompt_requests, [])).slice(0, 5).map(r => ({\n    id: r.id ?? null,\n    raw_input: r.raw_input ?? null,\n    normalized_brief: r.normalized_brief ?? null,\n    output_type: r.output_type ?? null,\n    platform: r.platform ?? null,\n    status: r.status ?? null,\n    created_at: r.created_at ?? null\n  }))\n};\n\nconst orchestration_status = {\n  status: pick(orchestrationSource.status, raw.status, null),\n  prompt_request_id: pick(orchestrationSource.prompt_request_id, raw.prompt_request_id, null),\n  next_workflow: pick(orchestrationSource.next_workflow, raw.next_workflow, null),\n  error_code: pick(orchestrationSource.error_code, raw.error_code, null),\n  error_message: pick(orchestrationSource.error_message, raw.error_message, null)\n};\n\nreturn [{\n  json: {\n    normalized_input,\n    router_result,\n    brief_decision_result,\n    attachments_summary,\n    conversation_memory,\n    orchestration_status\n  }\n}];"
+      },
+      "id": "97a38e6e-6559-4c88-8877-62d5c09c777a",
+      "name": "Validate Response Composer Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1936,
+        432
+      ],
+      "notesInFlow": true,
+      "notes": "Accepts flexible SW-00A/SW-00B/SW-00C/orchestration status input. No Supabase reads/writes."
+    },
+    {
+      "parameters": {
+        "jsCode": "const response_composer_input = {\n  normalized_input: $json.normalized_input,\n  router_result: $json.router_result,\n  brief_decision_result: $json.brief_decision_result,\n  attachments_summary: $json.attachments_summary,\n  conversation_memory: $json.conversation_memory,\n  orchestration_status: $json.orchestration_status\n};\nreturn [{ json: { ...$json, response_composer_input } }];"
+      },
+      "id": "5d9b8221-9d50-404c-a2fc-b1ff3bc991ca",
+      "name": "Prepare Response Composer Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        432
+      ],
+      "notesInFlow": true,
+      "notes": "Builds compact response_composer_input for the single AI call."
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json.response_composer_input) }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are SW-00D Response Composer Agent for AI Creative Direction OS.\n\nYour only job is to compose a short user-facing response based on structured pipeline results.\n\nReturn ONLY valid strict JSON.\nNo markdown.\nNo prose.\nNo comments.\nNo extra keys.\n\nRequired JSON schema exactly:\n\n{\n\"reply_language\": \"ar-EG | ar-Gulf | en | mixed | other\",\n\"response_type\": \"acknowledgement | clarification_question | unsupported | error\",\n\"message_to_user\": \"short user-facing message\",\n\"should_continue_pipeline\": false,\n\"should_ask_user\": false,\n\"question_to_user\": null\n}\n\nAllowed reply_language values only:\n- ar-EG\n- ar-Gulf\n- en\n- mixed\n- other\n\nAllowed response_type values only:\n- acknowledgement\n- clarification_question\n- unsupported\n- error\n\nPurpose:\nYou compose the user-facing chat response from structured pipeline results.\nYou do not decide business logic.\nYou do not create records.\nYou do not generate final creative prompts.\n\nUse these inputs:\n- normalized_input.raw_input\n- normalized_input.reply_language\n- normalized_input.normalized_english_input\n- normalized_input.is_empty_or_noise\n- router_result.intent\n- router_result.route\n- brief_decision_result\n- orchestration_status\n- conversation_memory when available\n\nPriority order:\n1. Empty/noise input\n2. Clarification required\n3. Prompt request acknowledgement\n4. Media/reference/product/character/campaign handoff acknowledgement\n5. General question / normal conversation\n6. Unsupported request\n7. Error fallback\n\nImportant priority rule:\nGeneral question / normal conversation must be handled before unsupported unless router_result.intent is explicitly \"unsupported\".\n\nBehavior rules:\n\n1. Use the reply_language from normalized_input when available.\n\n2. If reply_language is \"ar-EG\", write in natural Egyptian Arabic matching the user's tone.\n\n3. If reply_language is \"ar-Gulf\", write in natural Gulf Arabic.\n\n4. If reply_language is \"en\", write in clear professional English.\n\n5. If reply_language is \"mixed\", write in the same mixed Arabic-English style, but keep it professional.\n\n6. If reply_language is \"other\", write in simple English unless the input clearly indicates another language.\n\n7. If normalized_input.is_empty_or_noise = true:\n- response_type = \"unsupported\"\n- should_continue_pipeline = false\n- should_ask_user = true\n- question_to_user should ask the user to send a clearer creative request.\n- message_to_user should be short and helpful.\n\n8. If brief_decision_result.status_recommendation = \"needs_clarification\":\n- response_type = \"clarification_question\"\n- should_continue_pipeline = false\n- should_ask_user = true\n- question_to_user must use brief_decision_result.clarification_question when available.\n- message_to_user should ask the clarification question naturally.\n\n9. If brief_decision_result.can_create_prompt_request = true:\n- response_type = \"acknowledgement\"\n- should_continue_pipeline = true\n- should_ask_user = false\n- question_to_user = null\n- message_to_user should briefly acknowledge the understood creative request.\n- Do not generate the final prompt.\n\n10. If router_result.route is one of:\n- reference_analysis_handoff\n- product_lock_handoff\n- character_lock_handoff\n- campaign_handoff\n\nThen:\n- response_type = \"acknowledgement\"\n- should_continue_pipeline = true\n- should_ask_user = false unless a critical clarification is explicitly present.\n- question_to_user = null unless a critical clarification is explicitly present.\n- message_to_user should acknowledge the correct route without promising final output.\n\n11. If router_result.intent = \"general_question\" or router_result.route = \"answer_general_question\":\n- response_type = \"acknowledgement\"\n- should_continue_pipeline = false\n- should_ask_user = false\n- question_to_user = null\n- message_to_user must be a natural conversational reply in the user's language and tone.\n- If the user says something casual like \"عامل اي\", respond casually and professionally in Egyptian Arabic.\n- If the user asks \"إنت بتعمل إيه؟\", briefly explain that the system helps with creative prompts, visual direction, campaign planning, reference understanding, product consistency, and character consistency.\n- If the user asks a simple process question, answer briefly based only on the system role/context.\n- If the question is outside available context, ask a light follow-up instead of pretending.\n\n12. If router_result.intent is explicitly \"unsupported\":\n- response_type = \"unsupported\"\n- should_continue_pipeline = false\n- should_ask_user = false\n- question_to_user = null\n- message_to_user should politely explain that the request is outside the current supported creative workflow or needs clearer input.\n\n13. Do not generate a creative prompt.\n14. Do not mention internal workflow names like SW-00A, SW-00B, SW-00C, SW-00D, WF-00.\n15. Do not mention database tables.\n16. Do not promise background work.\n17. Do not say the work is completed.\n18. Do not claim final output is ready.\n19. Keep the response short: usually one or two sentences.\n20. The response must be contextual, not a fixed template.\n"
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        2384,
+        432
+      ],
+      "id": "02a2f4d3-d611-45a8-b174-60f56dff4070",
+      "name": "Response Composer Call"
+    },
+    {
+      "parameters": {
+        "jsCode": "function baseInput() {\n  try { return $('Validate Response Composer Input').first().json; } catch (e) { return {}; }\n}\nfunction isPlainObject(value) {\n  return value && typeof value === 'object' && !Array.isArray(value);\n}\nfunction hasResponseShape(obj) {\n  return isPlainObject(obj) && (\n    obj.reply_language !== undefined ||\n    obj.response_type !== undefined ||\n    obj.message_to_user !== undefined ||\n    obj.should_continue_pipeline !== undefined ||\n    obj.should_ask_user !== undefined ||\n    obj.question_to_user !== undefined\n  );\n}\nfunction addCandidate(candidates, value) {\n  if (value === undefined || value === null) return;\n  if (typeof value === 'string') {\n    candidates.push(value);\n    return;\n  }\n  if (hasResponseShape(value)) {\n    candidates.push(value);\n    return;\n  }\n  if (Array.isArray(value)) {\n    for (const item of value) addCandidate(candidates, item);\n    return;\n  }\n  if (typeof value === 'object') {\n    if (typeof value.message === 'string') candidates.push(value.message);\n    if (typeof value.text === 'string') candidates.push(value.text);\n    if (typeof value.content === 'string') candidates.push(value.content);\n    if (Array.isArray(value.content)) addCandidate(candidates, value.content);\n    if (value.text && typeof value.text === 'object' && typeof value.text.message === 'string') candidates.push(value.text.message);\n    if (value.message && typeof value.message === 'object' && typeof value.message.content === 'string') candidates.push(value.message.content);\n  }\n}\nfunction extractCandidates(obj) {\n  const candidates = [];\n  addCandidate(candidates, obj);\n  if (obj && typeof obj === 'object') {\n    addCandidate(candidates, obj.output);\n    addCandidate(candidates, obj.text);\n    addCandidate(candidates, obj.content);\n    addCandidate(candidates, obj.message?.content);\n    addCandidate(candidates, obj.choices?.[0]?.message?.content);\n    addCandidate(candidates, obj.data?.choices?.[0]?.message?.content);\n    addCandidate(candidates, obj.response?.body?.choices?.[0]?.message?.content);\n    addCandidate(candidates, obj.output?.[0]?.content?.[0]?.text);\n    addCandidate(candidates, obj.output?.[0]?.content?.[0]?.text?.message);\n    addCandidate(candidates, obj.output?.[0]?.content?.[0]?.message);\n    addCandidate(candidates, obj.output?.[0]?.content?.[0]?.content);\n    addCandidate(candidates, obj.generations?.[0]?.[0]?.text);\n    addCandidate(candidates, obj.generations?.[0]?.[0]?.message?.content);\n  }\n  return candidates;\n}\nfunction tryParseJson(text) {\n  if (typeof text !== 'string') return null;\n  try { return JSON.parse(text); } catch (e) {}\n  return null;\n}\nfunction parseFirstJsonObject(text) {\n  if (typeof text !== 'string') return null;\n  const fenced = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\n  if (fenced) {\n    const parsedFence = tryParseJson(fenced[1].trim());\n    if (parsedFence) return parsedFence;\n  }\n  const firstDirect = tryParseJson(text.trim());\n  if (firstDirect) return firstDirect;\n\n  let start = -1;\n  let depth = 0;\n  let inString = false;\n  let escaped = false;\n\n  for (let i = 0; i < text.length; i++) {\n    const ch = text[i];\n\n    if (inString) {\n      if (escaped) {\n        escaped = false;\n      } else if (ch === '\\\\') {\n        escaped = true;\n      } else if (ch === '\"') {\n        inString = false;\n      }\n      continue;\n    }\n\n    if (ch === '\"') {\n      inString = true;\n      continue;\n    }\n\n    if (ch === '{') {\n      if (depth === 0) start = i;\n      depth++;\n      continue;\n    }\n\n    if (ch === '}') {\n      if (depth > 0) depth--;\n      if (depth === 0 && start >= 0) {\n        const slice = text.slice(start, i + 1);\n        const parsed = tryParseJson(slice);\n        if (parsed) return parsed;\n        start = -1;\n      }\n    }\n  }\n\n  return null;\n}\nfunction parseResponse(obj) {\n  for (const candidate of extractCandidates(obj)) {\n    if (hasResponseShape(candidate)) return candidate;\n    const parsed = parseFirstJsonObject(candidate);\n    if (hasResponseShape(parsed)) return parsed;\n  }\n  return null;\n}\nfunction toBool(value) {\n  return value === true || value === 'true';\n}\nfunction cleanString(value) {\n  if (value === undefined || value === null) return '';\n  return String(value).trim();\n}\nfunction allowedLanguage(value, fallbackLang) {\n  const allowed = new Set(['ar-EG', 'ar-Gulf', 'en', 'mixed', 'other']);\n  const v = cleanString(value);\n  if (allowed.has(v)) return v;\n  const f = cleanString(fallbackLang);\n  if (allowed.has(f)) return f;\n  return 'en';\n}\nfunction allowedResponseType(value) {\n  const allowed = new Set(['acknowledgement', 'clarification_question', 'unsupported', 'error']);\n  const v = cleanString(value);\n  return allowed.has(v) ? v : null;\n}\nfunction localizedFallback(replyLanguage, scenario) {\n  if (scenario === 'empty') {\n    if (replyLanguage === 'ar-EG') return {\n      message: 'ابعتلي طلب إبداعي أوضح عشان أقدر أساعدك.',\n      question: 'ممكن تبعتلي المطلوب بشكل أوضح؟'\n    };\n    if (replyLanguage === 'ar-Gulf') return {\n      message: 'ارسل لي طلب إبداعي أوضح عشان أقدر أساعدك.',\n      question: 'ممكن ترسل المطلوب بشكل أوضح؟'\n    };\n    return {\n      message: 'Please send a clearer creative request so I can help.',\n      question: 'Can you send the request again with a little more detail?'\n    };\n  }\n\n  if (scenario === 'clarification') {\n    if (replyLanguage === 'ar-EG') return { message: 'محتاج توضيح بسيط قبل ما نكمل.', question: 'ممكن توضح المطلوب أكتر؟' };\n    if (replyLanguage === 'ar-Gulf') return { message: 'أحتاج توضيح بسيط قبل ما نكمل.', question: 'ممكن توضح المطلوب أكثر؟' };\n    return { message: 'I need one clarification before we continue.', question: 'Can you clarify the request a little more?' };\n  }\n\n  if (scenario === 'general') {\n    if (replyLanguage === 'ar-EG') return { message: 'تمام يا باشا، أنا معاك. ابعتلي عايز نشتغل على إيه في البرومبت أو التصميم.', question: null };\n    if (replyLanguage === 'ar-Gulf') return { message: 'تمام، أنا معك. ارسل لي وش تبغى نشتغل عليه في البرومبت أو التصميم.', question: null };\n    return { message: 'I’m here to help with creative prompts, visual direction, campaigns, references, and consistency. What would you like to work on?', question: null };\n  }\n\n  if (scenario === 'prompt_ack') {\n    if (replyLanguage === 'ar-EG') return { message: 'تمام، فهمت الطلب وجهزته للخطوة الجاية من غير ما أطلع البرومبت النهائي دلوقتي.', question: null };\n    if (replyLanguage === 'ar-Gulf') return { message: 'تمام، فهمت الطلب وجهزته للخطوة التالية بدون توليد البرومبت النهائي الآن.', question: null };\n    return { message: 'Got it. I understood the creative request and prepared it for the next step without generating the final prompt yet.', question: null };\n  }\n\n  if (scenario === 'handoff') {\n    if (replyLanguage === 'ar-EG') return { message: 'تمام، استلمت الاتجاه وهنكمل على المسار المناسب من غير ما أطلع نتيجة نهائية دلوقتي.', question: null };\n    if (replyLanguage === 'ar-Gulf') return { message: 'تمام، استلمت الاتجاه وبنكمل على المسار المناسب بدون إخراج نتيجة نهائية الآن.', question: null };\n    return { message: 'Got it. I understood the direction and prepared it for the appropriate next step without generating a final output yet.', question: null };\n  }\n\n  if (scenario === 'unsupported') {\n    if (replyLanguage === 'ar-EG') return { message: 'الطلب ده خارج نطاق شغل البرومبتات والتوجيه الإبداعي الحالي. ابعتلي طلب له علاقة بصورة، فيديو، إعلان، ريفرنس، أو حملة.', question: null };\n    if (replyLanguage === 'ar-Gulf') return { message: 'هذا الطلب خارج نطاق البرومبتات والتوجيه الإبداعي الحالي. ارسل لي طلب له علاقة بصورة، فيديو، إعلان، مرجع، أو حملة.', question: null };\n    return { message: 'This request is outside the current creative prompt and direction workflow. Send a request related to an image, video, ad, reference, or campaign.', question: null };\n  }\n\n  return {\n    message: 'I could not prepare a response for this request. Please try again with a clearer creative brief.',\n    question: 'Can you send the creative request again with a little more detail?'\n  };\n}\n\nconst base = baseInput();\nconst normalized = base.normalized_input || {};\nconst router = base.router_result || {};\nconst brief = base.brief_decision_result || {};\nconst parsed = parseResponse($json);\n\nconst parsedValid = parsed && typeof parsed === 'object';\nlet reply_language = allowedLanguage(parsedValid ? parsed.reply_language : null, normalized.reply_language);\nlet response_type = allowedResponseType(parsedValid ? parsed.response_type : null) || 'error';\nlet message_to_user = cleanString(parsedValid ? parsed.message_to_user : '');\nlet should_continue_pipeline = toBool(parsedValid ? parsed.should_continue_pipeline : false);\nlet should_ask_user = toBool(parsedValid ? parsed.should_ask_user : false);\nlet question_to_user = parsedValid ? parsed.question_to_user : null;\nif (question_to_user !== null && question_to_user !== undefined) question_to_user = cleanString(question_to_user) || null;\n\nconst handoffRoutes = new Set(['reference_analysis_handoff', 'product_lock_handoff', 'character_lock_handoff', 'campaign_handoff']);\nconst isEmptyOrNoise = normalized.is_empty_or_noise === true;\nconst needsClarification = brief.status_recommendation === 'needs_clarification';\nconst canCreatePromptRequest = brief.can_create_prompt_request === true;\nconst isHandoff = handoffRoutes.has(router.route);\nconst isGeneralQuestion = router.intent === 'general_question' || router.route === 'answer_general_question';\nconst isExplicitUnsupported = router.intent === 'unsupported';\n\n// Priority 1: Empty/noise input.\nif (isEmptyOrNoise) {\n  const fb = localizedFallback(reply_language, 'empty');\n  response_type = 'unsupported';\n  should_continue_pipeline = false;\n  should_ask_user = true;\n  question_to_user = question_to_user || fb.question;\n  message_to_user = message_to_user || fb.message;\n}\n\n// Priority 2: Clarification required.\nelse if (needsClarification) {\n  const fb = localizedFallback(reply_language, 'clarification');\n  response_type = 'clarification_question';\n  should_continue_pipeline = false;\n  should_ask_user = true;\n  question_to_user = cleanString(brief.clarification_question) || question_to_user || fb.question;\n  message_to_user = message_to_user || question_to_user || fb.message;\n}\n\n// Priority 3: Prompt request acknowledgement.\nelse if (canCreatePromptRequest) {\n  const fb = localizedFallback(reply_language, 'prompt_ack');\n  response_type = 'acknowledgement';\n  should_continue_pipeline = true;\n  should_ask_user = false;\n  question_to_user = null;\n  message_to_user = message_to_user || fb.message;\n}\n\n// Priority 4: Media/reference/product/character/campaign handoff acknowledgement.\nelse if (isHandoff) {\n  const fb = localizedFallback(reply_language, 'handoff');\n  response_type = 'acknowledgement';\n  should_continue_pipeline = true;\n  should_ask_user = false;\n  question_to_user = null;\n  message_to_user = message_to_user || fb.message;\n}\n\n// Priority 5: General question / normal conversation.\n// This intentionally comes before unsupported unless router.intent is explicitly unsupported.\nelse if (isGeneralQuestion && !isExplicitUnsupported) {\n  const fb = localizedFallback(reply_language, 'general');\n  response_type = 'acknowledgement';\n  should_continue_pipeline = false;\n  should_ask_user = false;\n  question_to_user = null;\n  message_to_user = message_to_user || fb.message;\n}\n\n// Priority 6: Unsupported request.\nelse if (isExplicitUnsupported || router.route === 'unsupported') {\n  const fb = localizedFallback(reply_language, 'unsupported');\n  response_type = 'unsupported';\n  should_continue_pipeline = false;\n  should_ask_user = false;\n  question_to_user = null;\n  message_to_user = message_to_user || fb.message;\n}\n\n// Priority 7: Error fallback.\nelse if (!parsedValid || !message_to_user) {\n  const fb = localizedFallback(reply_language, 'error');\n  response_type = 'error';\n  should_continue_pipeline = false;\n  should_ask_user = true;\n  question_to_user = fb.question;\n  message_to_user = fb.message;\n}\n\n// Final schema guard.\nif (!message_to_user) {\n  const fb = localizedFallback(reply_language, response_type === 'acknowledgement' ? 'prompt_ack' : response_type);\n  message_to_user = fb.message;\n}\nif (response_type !== 'clarification_question' && response_type !== 'unsupported' && !should_ask_user) {\n  question_to_user = null;\n}\nif (response_type === 'clarification_question' && !question_to_user) {\n  const fb = localizedFallback(reply_language, 'clarification');\n  question_to_user = fb.question;\n}\nif (response_type === 'clarification_question' && question_to_user && !message_to_user) {\n  message_to_user = question_to_user;\n}\n\nreturn [{\n  json: {\n    reply_language,\n    response_type,\n    message_to_user,\n    should_continue_pipeline,\n    should_ask_user,\n    question_to_user\n  }\n}];"
+      },
+      "id": "e8cb340d-8ff1-4120-8fd4-7a27d13e3441",
+      "name": "Parse and Validate Response JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2736,
+        432
+      ],
+      "notesInFlow": true,
+      "notes": "Parses LangChain/OpenAI response shapes and enforces the approved response schema."
+    },
+    {
+      "parameters": {
+        "jsCode": "const allowedKeys = [\n  'reply_language',\n  'response_type',\n  'message_to_user',\n  'should_continue_pipeline',\n  'should_ask_user',\n  'question_to_user'\n];\nconst out = {};\nfor (const key of allowedKeys) out[key] = $json[key];\nreturn [{ json: out }];"
+      },
+      "id": "87ee0c2d-6329-4852-9e83-cf1abdcf1a57",
+      "name": "Return Response Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2960,
+        432
+      ],
+      "notesInFlow": true,
+      "notes": "Returns only the approved SW-00D response contract."
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_object"
+            }
+          },
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        2464,
+        656
+      ],
+      "id": "421001cb-031e-43ab-bffb-ada6be40490b",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "UyGBYvdMSrJClgvz",
+          "name": "OpenAI account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Response Composer Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Response Composer Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare Response Composer Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Response Composer Input": {
+      "main": [
+        [
+          {
+            "node": "Response Composer Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Response Composer Call": {
+      "main": [
+        [
+          {
+            "node": "Parse and Validate Response JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse and Validate Response JSON": {
+      "main": [
+        [
+          {
+            "node": "Return Response Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Response Composer Call",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "versionId": "dd9f2501-f776-4618-a85b-ed4eee972e17",
+  "meta": {
+    "instanceId": "078ebb9a69bf38cf4453fd8eeb25933e0bb708831adc9bbc920c51805e3f39df"
+  },
+  "id": "aAZEFE8gafjkPlz8",
+  "tags": []
+}

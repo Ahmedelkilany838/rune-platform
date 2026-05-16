@@ -1,0 +1,629 @@
+{
+  "name": "WF-01 Prompt Request Creator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "79706cc4-d56e-4a82-89e6-24726c88fb35",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1776,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function pick(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null && value !== '') return value;\n  }\n  return null;\n}\n\nfunction asArray(value) {\n  if (!value) return [];\n  return Array.isArray(value) ? value : [value];\n}\n\nfunction isBlank(v) {\n  if (v === undefined || v === null) return true;\n  const s = String(v).trim();\n  return s === '' || s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined';\n}\n\nfunction isUuid(v) {\n  if (isBlank(v)) return false;\n  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v).trim());\n}\n\nfunction uuidOrNull(v) {\n  return isUuid(v) ? String(v).trim() : null;\n}\n\nfunction toBool(value) {\n  return value === true || value === 'true';\n}\n\nfunction canonicalOutputType(value, rawText, briefSummary) {\n  const v = String(value || '').trim().toLowerCase();\n  const text = `${rawText || ''} ${briefSummary || ''}`.toLowerCase();\n\n  const allowed = new Set([\n    'image_prompt',\n    'video_prompt',\n    'frame_by_frame_prompt',\n    'product_ad_prompt',\n    'social_media_prompt',\n    'key_visual_prompt',\n    'retouching_prompt',\n    'reference_analysis',\n    'campaign_concept',\n    'prompt_repair',\n    'full_creative_direction'\n  ]);\n\n  const map = {\n    image: 'image_prompt',\n    image_prompt: 'image_prompt',\n    visual_prompt: 'image_prompt',\n\n    video: 'video_prompt',\n    video_prompt: 'video_prompt',\n\n    frame_by_frame: 'frame_by_frame_prompt',\n    frame_by_frame_prompt: 'frame_by_frame_prompt',\n\n    product_ad: 'product_ad_prompt',\n    product_ad_prompt: 'product_ad_prompt',\n    product_advertising_prompt: 'product_ad_prompt',\n    advertising_prompt: 'product_ad_prompt',\n    ad_prompt: 'product_ad_prompt',\n    car_ad_prompt: 'product_ad_prompt',\n    automotive_ad_prompt: 'product_ad_prompt',\n\n    social: 'social_media_prompt',\n    social_media_prompt: 'social_media_prompt',\n    social_media_visual_prompt: 'social_media_prompt',\n\n    key_visual: 'key_visual_prompt',\n    key_visual_prompt: 'key_visual_prompt',\n\n    retouching: 'retouching_prompt',\n    retouching_prompt: 'retouching_prompt',\n    retouching_direction: 'retouching_prompt',\n    retouch_direction: 'retouching_prompt',\n\n    reference_analysis: 'reference_analysis',\n\n    campaign_prompt: 'campaign_concept',\n    campaign_request: 'campaign_concept',\n    campaign_concept: 'campaign_concept',\n\n    prompt_revision: 'prompt_repair',\n    prompt_repair: 'prompt_repair',\n\n    full_creative_direction: 'full_creative_direction',\n    creative_direction: 'full_creative_direction',\n    art_direction: 'full_creative_direction'\n  };\n\n  if (map[v]) return map[v];\n\n  if (text.includes('frame by frame') || text.includes('shot by shot') || text.includes('storyboard')) return 'frame_by_frame_prompt';\n  if (text.includes('video') || text.includes('motion') || text.includes('فيديو')) return 'video_prompt';\n  if (text.includes('campaign') || text.includes('حملة') || text.includes('كامبين')) return 'campaign_concept';\n  if (text.includes('repair') || text.includes('revise') || text.includes('revision') || text.includes('fix prompt')) return 'prompt_repair';\n  if (text.includes('retouch') || text.includes('ريتاتش')) return 'retouching_prompt';\n  if (text.includes('key visual') || text.includes('kv') || text.includes('كي فيجوال') || text.includes('فيجوال رئيسي')) return 'key_visual_prompt';\n  if (text.includes('social') || text.includes('instagram') || text.includes('tiktok') || text.includes('linkedin') || text.includes('facebook')) return 'social_media_prompt';\n  if (\n    text.includes('اعلان') ||\n    text.includes('إعلان') ||\n    text.includes('advertising') ||\n    text.includes('ad ') ||\n    text.includes('product') ||\n    text.includes('منتج') ||\n    text.includes('عربية') ||\n    text.includes('سيارة') ||\n    text.includes('مرسيدس') ||\n    text.includes('mercedes')\n  ) {\n    return 'product_ad_prompt';\n  }\n  if (text.includes('full creative') || text.includes('art direction') || text.includes('visual system')) return 'full_creative_direction';\n  if (text.includes('reference analysis') || text.includes('analyze reference')) return 'reference_analysis';\n\n  const clearlyVisual = [\n    'image', 'visual', 'prompt', 'design', 'poster', 'photo', 'صورة', 'فيجوال', 'تصميم', 'برومبت'\n  ].some(term => text.includes(term));\n\n  if (v === 'other' && clearlyVisual) return 'image_prompt';\n  if (!v && clearlyVisual) return 'image_prompt';\n\n  const fallback = 'image_prompt';\n  return allowed.has(fallback) ? fallback : 'image_prompt';\n}\n\nconst raw = $json || {};\n\nconst intake = pick(\n  raw.intake,\n  raw.wf00_intake,\n  raw.input?.intake,\n  {}\n) || {};\n\nconst normalizer = pick(\n  raw.normalizer_result,\n  raw.normalizerResult,\n  raw.sw00a_result,\n  raw.sw00aResult,\n  raw.input?.normalizer_result,\n  {}\n) || {};\n\nconst router = pick(\n  raw.router_result,\n  raw.routerResult,\n  raw.sw00b_result,\n  raw.sw00bResult,\n  raw.input?.router_result,\n  {}\n) || {};\n\nconst brief = pick(\n  raw.brief_decision_result,\n  raw.briefDecisionResult,\n  raw.sw00c_result,\n  raw.sw00cResult,\n  raw.input?.brief_decision_result,\n  {}\n) || {};\n\nconst workspace_id = uuidOrNull(pick(intake.workspace_id, raw.workspace_id));\nconst user_id = uuidOrNull(pick(intake.user_id, raw.user_id));\nconst project_id = uuidOrNull(pick(intake.project_id, raw.project_id));\nconst conversation_session_id = uuidOrNull(pick(raw.conversation_session_id, intake.conversation_session_id));\nconst source_user_message_id = uuidOrNull(pick(raw.user_message_id, intake.conversation_message_id, raw.source_user_message_id));\nconst assistant_message_id = uuidOrNull(pick(raw.assistant_message_id, intake.assistant_message_id));\n\nconst raw_input = String(pick(normalizer.raw_input, intake.message_text, raw.message_text, '') || '');\nconst normalized_english_input = String(pick(normalizer.normalized_english_input, '') || '');\nconst message_summary_english = String(pick(normalizer.message_summary_english, '') || '');\nconst brief_summary = String(brief.brief_summary || '');\n\nconst router_route = String(pick(router.route, '') || '');\nconst router_intent = String(pick(router.intent, '') || '');\nconst normalization_status = String(pick(normalizer.normalization_status, '') || '');\n\nconst can_create_prompt_request = toBool(pick(brief.can_create_prompt_request, false));\nconst missing_critical_fields = asArray(pick(brief.missing_critical_fields, []));\nconst meaningful_decisions = asArray(pick(brief.meaningful_decisions, []));\n\nconst output_type = canonicalOutputType(\n  pick(brief.output_type, raw.output_type, null),\n  raw_input,\n  brief_summary\n);\n\nconst platform = pick(brief.platform, raw.platform, null);\n\nconst errors = [];\n\nif (String(raw.wf_status || '') !== 'ready') errors.push('wf00_status_not_ready');\nif (raw.should_continue_pipeline !== true) errors.push('pipeline_not_marked_to_continue');\nif (!workspace_id) errors.push('missing_or_invalid_workspace_id');\nif (!user_id) errors.push('missing_or_invalid_user_id');\nif (!raw_input.trim()) errors.push('missing_raw_input');\n\n// Allow fallback if we still have usable text.\n// Do not allow failed normalization unless raw input is usable and router/brief are valid.\nconst normalizationUsable =\n  normalization_status === 'success' ||\n  normalization_status === 'fallback' ||\n  Boolean(raw_input.trim());\n\nif (!normalizationUsable) errors.push('normalization_not_usable');\n\nif (router_route !== 'create_prompt_request') errors.push('route_not_create_prompt_request');\nif (router.needs_prompt_request !== true) errors.push('router_does_not_need_prompt_request');\nif (can_create_prompt_request !== true) errors.push('brief_decision_cannot_create_prompt_request');\nif (missing_critical_fields.length > 0) errors.push('missing_critical_fields_present');\n\nconst valid_handoff = errors.length === 0;\n\nreturn [{\n  json: {\n    wf00: raw,\n    intake,\n    normalizer_result: normalizer,\n    router_result: router,\n    brief_decision_result: brief,\n\n    workspace_id,\n    user_id,\n    project_id,\n    conversation_session_id,\n    source_user_message_id,\n    assistant_message_id,\n\n    raw_input,\n    normalized_english_input,\n    message_summary_english,\n\n    output_type,\n    platform,\n    brief_summary,\n    meaningful_decisions,\n    missing_critical_fields,\n\n    valid_handoff,\n    errors\n  }\n}];"
+      },
+      "id": "8eebd042-90e4-4013-9f57-da5ed050dd22",
+      "name": "Validate WF-00 Handoff",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1552,
+        208
+      ],
+      "notesInFlow": true,
+      "notes": "Validates WF-00 output. No DB writes here."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "if-valid-wf-00-handoff",
+              "leftValue": "={{ $json.valid_handoff }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "74e1136a-7967-4a0e-84c1-f9b5e8a44777",
+      "name": "IF Valid WF-00 Handoff",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1328,
+        208
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function clampConfidence(value) {\n  const n = Number(value);\n  if (!Number.isFinite(n)) return 0.7;\n  return Math.max(0, Math.min(1, n));\n}\n\nfunction toSnakeKey(value, fallback) {\n  const cleaned = String(value || '')\n    .trim()\n    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')\n    .replace(/[^a-zA-Z0-9]+/g, '_')\n    .replace(/^_+|_+$/g, '')\n    .toLowerCase();\n  return cleaned || fallback;\n}\n\nfunction normalizeDecisionValue(value) {\n  if (value === undefined || value === null) return {};\n  if (Array.isArray(value)) return { values: value };\n  if (typeof value === 'object') return { ...value };\n  return { value };\n}\n\nfunction textFromDecisionValue(value) {\n  if (value === undefined || value === null) return '';\n  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);\n  if (Array.isArray(value)) return value.map(textFromDecisionValue).filter(Boolean).join(' ');\n  if (typeof value === 'object') {\n    const priority = [\n      value.value,\n      value.subject,\n      value.description,\n      value.text,\n      value.label,\n      value.surface,\n      value.environment,\n      value.material,\n      value.lighting,\n      value.composition,\n      value.camera,\n      value.style,\n      value.mood\n    ].map(textFromDecisionValue).filter(Boolean);\n    if (priority.length) return priority.join(' ');\n    try { return JSON.stringify(value); } catch (e) { return ''; }\n  }\n  return '';\n}\n\nfunction includesAny(text, terms) {\n  return terms.some(term => text.includes(term));\n}\n\nfunction inferSemanticDecisionKey(originalKey, decisionValue, usedKeys) {\n  const text = textFromDecisionValue(decisionValue).toLowerCase();\n\n  if (includesAny(text, ['lighting', 'light ', 'macro lighting', 'dramatic light', 'softbox', 'shadow', 'rim light', 'glow', 'illumination'])) {\n    return 'lighting_direction';\n  }\n\n  if (includesAny(text, ['camera', 'lens', 'macro', 'close-up', 'close up', 'depth of field', 'dof', 'focal', 'angle', 'shot'])) {\n    return 'camera_direction';\n  }\n\n  if (includesAny(text, ['composition', 'layout', 'framing', 'editorial composition', 'negative space', 'centered', 'rule of thirds'])) {\n    return 'composition_direction';\n  }\n\n  if (includesAny(text, ['surface', 'background', 'backdrop', 'environment', 'setting', 'studio', 'table', 'floor', 'velvet', 'marble', 'wood', 'fabric', 'set '])) {\n    return 'surface_environment';\n  }\n\n  if (includesAny(text, ['material', 'reflection', 'reflections', 'reflective', 'gloss', 'metal', 'gold', 'glass', 'velvet', 'texture', 'finish', 'polished'])) {\n    return originalKey === 'creative_subject' && !usedKeys.has('creative_subject')\n      ? 'creative_subject'\n      : 'material_finish';\n  }\n\n  if (includesAny(text, ['color', 'palette', 'green', 'gold', 'blue', 'red', 'orange', 'monochrome', 'grade'])) {\n    return 'color_palette';\n  }\n\n  if (includesAny(text, ['mood', 'style', 'premium', 'luxury', 'cinematic', 'editorial', 'minimal', 'dramatic'])) {\n    return originalKey === 'visual_style' && !usedKeys.has('visual_style')\n      ? 'visual_style'\n      : 'requested_mood';\n  }\n\n  if (originalKey === 'creative_subject' && usedKeys.has('creative_subject')) return 'supporting_subject';\n  if (originalKey === 'visual_style' && usedKeys.has('visual_style')) return 'visual_style_detail';\n  if (originalKey === 'constraints' && usedKeys.has('constraints')) return 'constraints_detail';\n\n  return originalKey;\n}\n\nfunction makeUniqueKey(preferredKey, usedKeys) {\n  let key = preferredKey;\n  let suffix = 2;\n  while (usedKeys.has(key)) {\n    key = preferredKey + '_' + suffix;\n    suffix += 1;\n  }\n  return key;\n}\n\nfunction decisionFingerprint(key, value) {\n  let valueText = '';\n  try { valueText = JSON.stringify(value); } catch (e) { valueText = textFromDecisionValue(value); }\n  return (key + ':' + valueText).toLowerCase();\n}\n\nfunction normalizeMeaningfulDecisions(decisions) {\n  const input = Array.isArray(decisions) ? decisions : [];\n  const usedKeys = new Set();\n  const seenFingerprints = new Set();\n  const normalized = [];\n\n  for (const rawDecision of input) {\n    if (!rawDecision || typeof rawDecision !== 'object') continue;\n\n    const originalKey = toSnakeKey(rawDecision.decision_key, 'decision_' + (normalized.length + 1));\n    const rawValue = rawDecision.decision_value ?? {};\n    const decisionValue = normalizeDecisionValue(rawValue);\n    const originalFingerprint = decisionFingerprint(originalKey, decisionValue);\n\n    if (seenFingerprints.has(originalFingerprint)) continue;\n    seenFingerprints.add(originalFingerprint);\n\n    const semanticKey = usedKeys.has(originalKey)\n      ? inferSemanticDecisionKey(originalKey, decisionValue, usedKeys)\n      : originalKey;\n    const decisionKey = makeUniqueKey(toSnakeKey(semanticKey, originalKey), usedKeys);\n    usedKeys.add(decisionKey);\n\n    if (decisionKey !== originalKey) {\n      decisionValue.normalized_from_key = originalKey;\n      decisionValue.normalization_reason = 'duplicate_decision_key_reclassified';\n    }\n\n    normalized.push({\n      decision_key: decisionKey,\n      decision_value: decisionValue,\n      source: rawDecision.source ?? 'inferred',\n      confidence_score: clampConfidence(rawDecision.confidence_score)\n    });\n  }\n\n  return normalized.slice(0, 30);\n}\n\nconst meaningful_decisions = normalizeMeaningfulDecisions($json.meaningful_decisions || []);\n\nconst normalizedBrief = {\n  normalized_english_input: $json.normalized_english_input,\n  message_summary_english: $json.message_summary_english,\n  brief_summary: $json.brief_summary,\n  meaningful_decisions,\n  router_result: $json.router_result || {},\n  attachments_summary: $json.intake?.attachments_summary || {},\n  links: Array.isArray($json.intake?.links) ? $json.intake.links : [],\n  source_conversation_session_id: $json.conversation_session_id || null,\n  source_user_message_id: $json.source_user_message_id || null\n};\n\nconst payload = {\n  user_id: $json.user_id,\n  workspace_id: $json.workspace_id,\n  project_id: $json.project_id,\n  raw_input: $json.raw_input,\n  normalized_brief: normalizedBrief,\n  detected_language: $json.normalizer_result?.detected_language || null,\n  output_type: $json.output_type || null,\n  platform: $json.platform || null,\n  status: 'ready_for_generation',\n  missing_fields: $json.missing_critical_fields || [],\n  clarification_needed: false\n};\n\nreturn [{ json: { ...$json, meaningful_decisions, prompt_request_payload: payload } }];"
+      },
+      "id": "f191f328-8a3d-4ca2-b9bb-4bf46ae58c54",
+      "name": "Prepare Prompt Request Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1104,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "prompt_requests",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "user_id",
+              "fieldValue": "={{ $json.prompt_request_payload.user_id }}"
+            },
+            {
+              "fieldId": "workspace_id",
+              "fieldValue": "={{ $json.prompt_request_payload.workspace_id }}"
+            },
+            {
+              "fieldId": "project_id",
+              "fieldValue": "={{ $json.prompt_request_payload.project_id }}"
+            },
+            {
+              "fieldId": "raw_input",
+              "fieldValue": "={{ $json.prompt_request_payload.raw_input }}"
+            },
+            {
+              "fieldId": "normalized_brief",
+              "fieldValue": "={{ JSON.stringify($json.prompt_request_payload.normalized_brief) }}"
+            },
+            {
+              "fieldId": "detected_language",
+              "fieldValue": "={{ $json.prompt_request_payload.detected_language }}"
+            },
+            {
+              "fieldId": "output_type",
+              "fieldValue": "={{ $json.prompt_request_payload.output_type }}"
+            },
+            {
+              "fieldId": "platform",
+              "fieldValue": "={{ $json.prompt_request_payload.platform }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "ready_for_generation"
+            },
+            {
+              "fieldId": "missing_fields",
+              "fieldValue": "={{ JSON.stringify($json.prompt_request_payload.missing_fields || []) }}"
+            },
+            {
+              "fieldId": "clarification_needed",
+              "fieldValue": "={{ $json.prompt_request_payload.clarification_needed }}"
+            }
+          ]
+        }
+      },
+      "id": "27456fe4-13f3-440b-9563-d33d046ff557",
+      "name": "Create Prompt Request",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        144
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "i9vZO55NnCKQ8f4G",
+          "name": "Supabase account 3"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "if-prompt-request-created",
+              "leftValue": "={{ Boolean($json.id) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7222e444-2e98-458f-9082-4eb182c6d2f9",
+      "name": "IF Prompt Request Created",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -448,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function clampConfidence(value) {\n  const n = Number(value);\n  if (!Number.isFinite(n)) return 0.7;\n  return Math.max(0, Math.min(1, n));\n}\n\nfunction toSnakeKey(value, fallback) {\n  const cleaned = String(value || '')\n    .trim()\n    .replace(/([a-z0-9])([A-Z])/g, '$1_$2')\n    .replace(/[^a-zA-Z0-9]+/g, '_')\n    .replace(/^_+|_+$/g, '')\n    .toLowerCase();\n  return cleaned || fallback;\n}\n\nfunction normalizeDecisionValue(value) {\n  if (value === undefined || value === null) return {};\n  if (Array.isArray(value)) return { values: value };\n  if (typeof value === 'object') return { ...value };\n  return { value };\n}\n\nfunction textFromDecisionValue(value) {\n  if (value === undefined || value === null) return '';\n  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);\n  if (Array.isArray(value)) return value.map(textFromDecisionValue).filter(Boolean).join(' ');\n  if (typeof value === 'object') {\n    const priority = [\n      value.value,\n      value.subject,\n      value.description,\n      value.text,\n      value.label,\n      value.surface,\n      value.environment,\n      value.material,\n      value.lighting,\n      value.composition,\n      value.camera,\n      value.style,\n      value.mood\n    ].map(textFromDecisionValue).filter(Boolean);\n    if (priority.length) return priority.join(' ');\n    try { return JSON.stringify(value); } catch (e) { return ''; }\n  }\n  return '';\n}\n\nfunction includesAny(text, terms) {\n  return terms.some(term => text.includes(term));\n}\n\nfunction inferSemanticDecisionKey(originalKey, decisionValue, usedKeys) {\n  const text = textFromDecisionValue(decisionValue).toLowerCase();\n\n  if (includesAny(text, ['lighting', 'light ', 'macro lighting', 'dramatic light', 'softbox', 'shadow', 'rim light', 'glow', 'illumination'])) {\n    return 'lighting_direction';\n  }\n\n  if (includesAny(text, ['camera', 'lens', 'macro', 'close-up', 'close up', 'depth of field', 'dof', 'focal', 'angle', 'shot'])) {\n    return 'camera_direction';\n  }\n\n  if (includesAny(text, ['composition', 'layout', 'framing', 'editorial composition', 'negative space', 'centered', 'rule of thirds'])) {\n    return 'composition_direction';\n  }\n\n  if (includesAny(text, ['surface', 'background', 'backdrop', 'environment', 'setting', 'studio', 'table', 'floor', 'velvet', 'marble', 'wood', 'fabric', 'set '])) {\n    return 'surface_environment';\n  }\n\n  if (includesAny(text, ['material', 'reflection', 'reflections', 'reflective', 'gloss', 'metal', 'gold', 'glass', 'velvet', 'texture', 'finish', 'polished'])) {\n    return originalKey === 'creative_subject' && !usedKeys.has('creative_subject')\n      ? 'creative_subject'\n      : 'material_finish';\n  }\n\n  if (includesAny(text, ['color', 'palette', 'green', 'gold', 'blue', 'red', 'orange', 'monochrome', 'grade'])) {\n    return 'color_palette';\n  }\n\n  if (includesAny(text, ['mood', 'style', 'premium', 'luxury', 'cinematic', 'editorial', 'minimal', 'dramatic'])) {\n    return originalKey === 'visual_style' && !usedKeys.has('visual_style')\n      ? 'visual_style'\n      : 'requested_mood';\n  }\n\n  if (originalKey === 'creative_subject' && usedKeys.has('creative_subject')) return 'supporting_subject';\n  if (originalKey === 'visual_style' && usedKeys.has('visual_style')) return 'visual_style_detail';\n  if (originalKey === 'constraints' && usedKeys.has('constraints')) return 'constraints_detail';\n\n  return originalKey;\n}\n\nfunction makeUniqueKey(preferredKey, usedKeys) {\n  let key = preferredKey;\n  let suffix = 2;\n  while (usedKeys.has(key)) {\n    key = preferredKey + '_' + suffix;\n    suffix += 1;\n  }\n  return key;\n}\n\nfunction decisionFingerprint(key, value) {\n  let valueText = '';\n  try { valueText = JSON.stringify(value); } catch (e) { valueText = textFromDecisionValue(value); }\n  return (key + ':' + valueText).toLowerCase();\n}\n\nfunction normalizeMeaningfulDecisions(decisions) {\n  const input = Array.isArray(decisions) ? decisions : [];\n  const usedKeys = new Set();\n  const seenFingerprints = new Set();\n  const normalized = [];\n\n  for (const rawDecision of input) {\n    if (!rawDecision || typeof rawDecision !== 'object') continue;\n\n    const originalKey = toSnakeKey(rawDecision.decision_key, 'decision_' + (normalized.length + 1));\n    const rawValue = rawDecision.decision_value ?? {};\n    const decisionValue = normalizeDecisionValue(rawValue);\n    const originalFingerprint = decisionFingerprint(originalKey, decisionValue);\n\n    if (seenFingerprints.has(originalFingerprint)) continue;\n    seenFingerprints.add(originalFingerprint);\n\n    const semanticKey = usedKeys.has(originalKey)\n      ? inferSemanticDecisionKey(originalKey, decisionValue, usedKeys)\n      : originalKey;\n    const decisionKey = makeUniqueKey(toSnakeKey(semanticKey, originalKey), usedKeys);\n    usedKeys.add(decisionKey);\n\n    if (decisionKey !== originalKey) {\n      decisionValue.normalized_from_key = originalKey;\n      decisionValue.normalization_reason = 'duplicate_decision_key_reclassified';\n    }\n\n    normalized.push({\n      decision_key: decisionKey,\n      decision_value: decisionValue,\n      source: rawDecision.source ?? 'inferred',\n      confidence_score: clampConfidence(rawDecision.confidence_score)\n    });\n  }\n\n  return normalized.slice(0, 30);\n}\n\nfunction mapDecisionSource(source) {\n  const s = String(source || '').trim();\n\n  if (s === 'user_explicit') return 'user';\n  if (s === 'user') return 'user';\n\n  if (s === 'inferred') return 'agent';\n  if (s === 'agent') return 'agent';\n\n  if (s === 'default' || s === 'system_default') return 'default';\n\n  if (s === 'reference_analysis') return 'reference_analysis';\n  if (s === 'brand_profile') return 'brand_profile';\n  if (s === 'product_profile') return 'product_profile';\n  if (s === 'character_profile') return 'character_profile';\n  if (s === 'system') return 'system';\n\n  return 'agent';\n}\n\nconst base = $('Prepare Prompt Request Payload').first().json;\nconst created = $('Create Prompt Request').first().json || {};\nconst prompt_request_id = created.id || null;\nconst errors = Array.isArray(base.errors) ? [...base.errors] : [];\n\nif (!prompt_request_id) {\n  errors.push('prompt_request_create_failed');\n\n  return [\n    {\n      json: {\n        ...base,\n        prompt_request_id: null,\n        has_brief_decisions: false,\n        brief_decisions_created: 0,\n        errors\n      }\n    }\n  ];\n}\n\nconst decisions = normalizeMeaningfulDecisions(base.meaningful_decisions || []);\n\nif (decisions.length === 0) {\n  return [\n    {\n      json: {\n        ...base,\n        prompt_request_id,\n        created_prompt_request: created,\n        meaningful_decisions: decisions,\n        has_brief_decisions: false,\n        brief_decisions_created: 0,\n        errors\n      }\n    }\n  ];\n}\n\nreturn decisions.map((d, index) => ({\n  json: {\n    ...base,\n    prompt_request_id,\n    created_prompt_request: created,\n    meaningful_decisions: decisions,\n    has_brief_decisions: true,\n    decision_index: index,\n    decision_key: d.decision_key,\n    decision_value: d.decision_value,\n    source: mapDecisionSource(d.source),\n    confidence_score: clampConfidence(d.confidence_score),\n    errors\n  }\n}));"
+      },
+      "id": "8a53ae08-cc01-4381-b3e2-e12e73baa46d",
+      "name": "Prepare Brief Decisions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -224,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "if-has-brief-decisions",
+              "leftValue": "={{ $json.has_brief_decisions }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3b707552-58ae-426a-80f1-d4a6f5336a7e",
+      "name": "IF Has Brief Decisions",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        0,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "brief_decisions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "prompt_request_id",
+              "fieldValue": "={{ $json.prompt_request_id }}"
+            },
+            {
+              "fieldId": "decision_key",
+              "fieldValue": "={{ $json.decision_key }}"
+            },
+            {
+              "fieldId": "decision_value",
+              "fieldValue": "={{ JSON.stringify($json.decision_value || {}) }}"
+            },
+            {
+              "fieldId": "source",
+              "fieldValue": "={{ $json.source }}"
+            },
+            {
+              "fieldId": "confidence_score",
+              "fieldValue": "={{ $json.confidence_score }}"
+            }
+          ]
+        }
+      },
+      "id": "83fe7cb5-1099-44fe-83d4-1560db87446c",
+      "name": "Create Brief Decisions",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        224,
+        -32
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "i9vZO55NnCKQ8f4G",
+          "name": "Supabase account 3"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "let base = {};\ntry { base = $('Prepare Brief Decisions').first().json || {}; } catch (e) { base = {}; }\nconst rows = $input.all().map(i => i.json || {});\nconst errors = Array.isArray(base.errors) ? [...base.errors] : [];\nconst failed = rows.filter(r => !r.id || r.error);\nif (failed.length > 0) errors.push('brief_decisions_create_failed');\nconst count = rows.filter(r => r.id && !r.error).length;\nreturn [{ json: { ...base, brief_decisions_created: count, created_brief_decisions: rows.filter(r => r.id && !r.error), errors } }];"
+      },
+      "id": "8a00b0a1-092b-42bd-93f0-6ded9ecd67d2",
+      "name": "Brief Decisions Created Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ...$json, brief_decisions_created: 0 } }];"
+      },
+      "id": "42eddfe3-a89e-44e4-bcfa-f3cca9a97697",
+      "name": "Skip Brief Decisions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isUuid(v) {\n  if (v === undefined || v === null) return false;\n  const s = String(v).trim();\n  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(s);\n}\nconst prompt_request_id = $json.prompt_request_id || null;\nconst conversation_session_id = $json.conversation_session_id || null;\nreturn [{ json: { ...$json, can_update_conversation_session: isUuid(prompt_request_id) && isUuid(conversation_session_id) } }];"
+      },
+      "id": "3916741f-9270-4b5d-a7e2-9b4c78ff6557",
+      "name": "Prepare Conversation Session Link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "if-can-update-conversation-session",
+              "leftValue": "={{ $json.can_update_conversation_session }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "eb0c262f-6507-4edb-97a8-aa48fb32600e",
+      "name": "IF Can Update Conversation Session",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "tableId": "conversation_sessions",
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.conversation_session_id }}"
+            }
+          ]
+        },
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "prompt_request_id",
+              "fieldValue": "={{ $json.prompt_request_id }}"
+            }
+          ]
+        }
+      },
+      "id": "b4ce488f-5c01-4cd5-b28b-2255a69b8060",
+      "name": "Update Conversation Session With Prompt Request",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        -16
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "i9vZO55NnCKQ8f4G",
+          "name": "Supabase account 3"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function safeFirst(name) {\n  try { return $(name).first().json || {}; } catch (e) { return {}; }\n}\n\nconst current = $json || {};\nconst validated = safeFirst('Validate WF-00 Handoff');\nconst prepared = safeFirst('Prepare Prompt Request Payload');\nconst created = safeFirst('Create Prompt Request');\n\nconst decisionContext =\n  Object.keys(safeFirst('Brief Decisions Created Context')).length\n    ? safeFirst('Brief Decisions Created Context')\n    : safeFirst('Skip Brief Decisions');\n\nconst prompt_request_id =\n  created.id || current.prompt_request_id || decisionContext.prompt_request_id || null;\n\nlet errors = [];\nfor (const source of [validated.errors, prepared.errors, current.errors, decisionContext.errors]) {\n  if (Array.isArray(source)) errors.push(...source.filter(Boolean));\n}\n\nif (validated.valid_handoff === false && errors.length === 0) {\n  errors.push('invalid_wf00_handoff');\n}\n\nif (validated.valid_handoff === true && !prompt_request_id) {\n  errors.push('prompt_request_create_failed');\n}\n\nerrors = [...new Set(errors)];\n\nconst createdOk =\n  Boolean(prompt_request_id) &&\n  errors.filter(e => e !== 'conversation_session_update_failed').length === 0;\n\nconst output = {\n  wf01_status: createdOk ? 'created' : 'failed',\n  prompt_request_id: createdOk ? prompt_request_id : null,\n  workspace_id: validated.workspace_id || null,\n  user_id: validated.user_id || null,\n  project_id: validated.project_id || null,\n  conversation_session_id: validated.conversation_session_id || null,\n  source_user_message_id: validated.source_user_message_id || null,\n  output_type: validated.output_type || null,\n  platform: validated.platform || null,\n  prompt_request_status: 'ready_for_generation',\n  brief_decisions_created: createdOk ? Number(decisionContext.brief_decisions_created || 0) : 0,\n  next_workflow: createdOk ? 'WF-10 Prompt Generation Engine' : null,\n  handoff_payload: {\n    prompt_request_id: createdOk ? prompt_request_id : null,\n    workspace_id: validated.workspace_id || null,\n    user_id: validated.user_id || null,\n    project_id: validated.project_id || null,\n    output_type: validated.output_type || null,\n    platform: validated.platform || null\n  },\n  errors\n};\n\nreturn [{ json: output }];"
+      },
+      "id": "6f41de89-4938-4388-94c4-3792d96380ce",
+      "name": "Build WF-01 Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allowedKeys = [\n  'wf01_status',\n  'prompt_request_id',\n  'workspace_id',\n  'user_id',\n  'project_id',\n  'conversation_session_id',\n  'source_user_message_id',\n  'output_type',\n  'platform',\n  'prompt_request_status',\n  'brief_decisions_created',\n  'next_workflow',\n  'handoff_payload',\n  'errors'\n];\nconst out = {};\nfor (const key of allowedKeys) out[key] = $json[key];\nreturn [{ json: out }];"
+      },
+      "id": "c705eb4f-f819-403f-a8bb-b5d8a940e8e8",
+      "name": "Return WF-01 Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1568,
+        256
+      ],
+      "notesInFlow": true,
+      "notes": "Returns only the approved WF-01 output contract."
+    },
+    {
+      "parameters": {
+        "jsCode": "const created = $('Create Prompt Request').first().json || {};\nconst prepared = $('Prepare Prompt Request Payload').first().json || {};\n\nreturn [{\n  json: {\n    created_id: created.id || null,\n    created_error: created.error || null,\n    created_raw: created,\n    sent_payload: prepared.prompt_request_payload || null\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -672,
+        144
+      ],
+      "id": "e30ab46e-83d8-464e-b369-b1f493126562",
+      "name": "Debug Create Prompt Request"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate WF-00 Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate WF-00 Handoff": {
+      "main": [
+        [
+          {
+            "node": "IF Valid WF-00 Handoff",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Valid WF-00 Handoff": {
+      "main": [
+        [
+          {
+            "node": "Prepare Prompt Request Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build WF-01 Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Prompt Request Payload": {
+      "main": [
+        [
+          {
+            "node": "Create Prompt Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Prompt Request": {
+      "main": [
+        [
+          {
+            "node": "IF Prompt Request Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Prompt Request Created": {
+      "main": [
+        [
+          {
+            "node": "Prepare Brief Decisions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build WF-01 Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Brief Decisions": {
+      "main": [
+        [
+          {
+            "node": "IF Has Brief Decisions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Brief Decisions": {
+      "main": [
+        [
+          {
+            "node": "Create Brief Decisions",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Brief Decisions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Brief Decisions": {
+      "main": [
+        [
+          {
+            "node": "Brief Decisions Created Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brief Decisions Created Context": {
+      "main": [
+        [
+          {
+            "node": "Prepare Conversation Session Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Brief Decisions": {
+      "main": [
+        [
+          {
+            "node": "Prepare Conversation Session Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Conversation Session Link": {
+      "main": [
+        [
+          {
+            "node": "IF Can Update Conversation Session",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Can Update Conversation Session": {
+      "main": [
+        [
+          {
+            "node": "Update Conversation Session With Prompt Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build WF-01 Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Conversation Session With Prompt Request": {
+      "main": [
+        [
+          {
+            "node": "Build WF-01 Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WF-01 Output": {
+      "main": [
+        [
+          {
+            "node": "Return WF-01 Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "versionId": "35a39587-1719-4f29-8b33-5bea004fe70e",
+  "meta": {
+    "instanceId": "078ebb9a69bf38cf4453fd8eeb25933e0bb708831adc9bbc920c51805e3f39df"
+  },
+  "id": "CGQw0LLZW84S6EKI",
+  "tags": []
+}

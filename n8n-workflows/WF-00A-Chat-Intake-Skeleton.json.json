@@ -1,0 +1,1620 @@
+{
+  "name": "WF-00A Chat Intake Skeleton",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "wf-00a/chat-intake-skeleton",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "2abdbe86-9c9a-49d8-a75a-a18c0816dc5a",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -58944,
+        3600
+      ],
+      "webhookId": "b42a1e77-a684-49b3-9844-df9c7d276002"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "7da55f33-9f8f-4f6a-8d4b-095b769a1258",
+      "name": "n8n Chat Trigger",
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -59168,
+        3408
+      ],
+      "webhookId": "8656755c-0edb-4e16-b9ac-e75de9f90d20"
+    },
+    {
+      "parameters": {
+        "jsCode": "function ext(name) {\n  const m = String(name || '').toLowerCase().match(/\\.([a-z0-9]+)$/);\n  return m ? m[1] : '';\n}\nfunction kindForAttachment(a) {\n  const fileType = String(a.file_type || '').toLowerCase();\n  const mime = String(a.mime_type || '').toLowerCase();\n  const extension = ext(a.file_name || a.file_path || a.public_url);\n  if (fileType.includes('image') || mime.startsWith('image/') || ['jpg','jpeg','png','webp','gif','heic','svg'].includes(extension)) return 'image';\n  if (fileType.includes('audio') || fileType.includes('voice') || mime.startsWith('audio/') || ['mp3','wav','m4a','ogg','webm','aac'].includes(extension)) return 'audio';\n  if (fileType.includes('video') || mime.startsWith('video/') || ['mp4','mov','avi','mkv','webm'].includes(extension)) return 'video';\n  if (fileType.includes('link') || String(a.public_url || '').startsWith('http')) return 'link';\n  return 'file';\n}\nconst item = $json;\nconst attachments = Array.isArray(item.attachments) ? item.attachments : [];\nconst kinds = attachments.map(kindForAttachment);\nconst uniqueKinds = [...new Set(kinds)];\nconst hasText = String(item.message_text || '').trim().length > 0;\nconst hasImages = kinds.includes('image');\nconst hasAudio = kinds.includes('audio');\nconst hasVideo = kinds.includes('video');\nconst hasAttachments = attachments.length > 0;\nlet message_type = 'empty';\nif (hasText && hasAttachments) message_type = 'mixed';\nelse if (hasAudio) message_type = 'voice';\nelse if (hasAttachments) message_type = 'media';\nelse if (hasText) message_type = 'text';\nreturn [{ json: {\n  ...item,\n  message_type,\n  attachments: attachments.map((a, i) => ({ ...a, detected_kind: kinds[i] || 'file' })),\n  attachments_summary: {\n    has_attachments: hasAttachments,\n    attachment_count: attachments.length,\n    attachment_kinds: uniqueKinds\n  },\n  input_flags: {\n    ...item.input_flags,\n    has_text: hasText,\n    has_images: hasImages,\n    has_audio: hasAudio,\n    has_video: hasVideo,\n    has_attachments: hasAttachments,\n    is_empty: !hasText && !hasAttachments\n  }\n} }];"
+      },
+      "id": "280246f8-9338-4d1b-a05a-3b98d2a90777",
+      "name": "Detect Input Types",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -58496,
+        3504
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $json;\nconst text = String(item.message_text || '');\nconst textLinks = text.match(/https?:\\/\\/[^\\s<>()]+/gi) || [];\nconst attachmentLinks = (Array.isArray(item.attachments) ? item.attachments : [])\n  .map(a => a.public_url)\n  .filter(v => typeof v === 'string' && /^https?:\\/\\//i.test(v));\nconst links = [...new Set([...textLinks, ...attachmentLinks])];\nlet message_type = item.message_type;\nif (links.length > 0 && item.input_flags?.has_text && item.attachments_summary?.has_attachments) message_type = 'mixed';\nelse if (links.length > 0 && !item.attachments_summary?.has_attachments) message_type = item.input_flags?.has_text ? 'link' : 'link';\nreturn [{ json: {\n  ...item,\n  links,\n  message_type,\n  input_flags: {\n    ...item.input_flags,\n    has_links: links.length > 0,\n    is_empty: !item.input_flags?.has_text && !item.input_flags?.has_attachments && links.length === 0\n  }\n} }];"
+      },
+      "id": "e1ad30d5-ebaa-4f69-9e9c-837a047f9b39",
+      "name": "Extract Links",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -58272,
+        3504
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $json;\nconst attachments = Array.isArray(item.attachments) ? item.attachments : [];\nconst kinds = [...new Set(attachments.map(a => a.detected_kind || 'file'))];\nconst hasLinks = Boolean(item.input_flags?.has_links || (Array.isArray(item.links) && item.links.length));\nlet message_type = item.message_type || 'empty';\nif (item.input_flags?.has_text && (attachments.length > 0 || hasLinks)) message_type = 'mixed';\nelse if (attachments.some(a => a.detected_kind === 'audio')) message_type = 'voice';\nelse if (attachments.length > 0) message_type = 'media';\nelse if (hasLinks) message_type = 'link';\nelse if (item.input_flags?.has_text) message_type = 'text';\nelse message_type = 'empty';\nreturn [{ json: {\n  ...item,\n  message_type,\n  attachments_summary: {\n    has_attachments: attachments.length > 0,\n    attachment_count: attachments.length,\n    attachment_kinds: kinds\n  },\n  input_flags: {\n    has_text: Boolean(item.input_flags?.has_text),\n    has_images: attachments.some(a => a.detected_kind === 'image'),\n    has_audio: attachments.some(a => a.detected_kind === 'audio'),\n    has_video: attachments.some(a => a.detected_kind === 'video'),\n    has_links: hasLinks,\n    has_attachments: attachments.length > 0,\n    is_empty: !item.input_flags?.has_text && attachments.length === 0 && !hasLinks\n  }\n} }];"
+      },
+      "id": "445cb1e1-189a-4dea-81be-caa732e94b2d",
+      "name": "Build Attachments Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -58048,
+        3504
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function isBlank(v) {\n  if (v === undefined || v === null) return true;\n  const s = String(v).trim();\n  return s === '' || s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined';\n}\nfunction isUuid(v) {\n  if (isBlank(v)) return false;\n  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v).trim());\n}\nfunction uuidOrNull(v) {\n  return isUuid(v) ? String(v).trim() : null;\n}\nfunction contextError(field, rawValue) {\n  if (isBlank(rawValue)) return `missing_${field}_for_conversation_session`;\n  return `invalid_${field}_for_conversation_session`;\n}\nconst item = $json;\nconst rawWorkspaceId = item.workspace_id;\nconst rawUserId = item.user_id;\nconst rawProjectId = item.project_id;\nconst rawSessionId = item.conversation_session_id;\n\nconst workspace_id = uuidOrNull(rawWorkspaceId);\nconst user_id = uuidOrNull(rawUserId);\nconst project_id = uuidOrNull(rawProjectId);\nconst conversation_session_id = uuidOrNull(rawSessionId);\n\nconst errors = Array.isArray(item.errors) ? [...item.errors] : [];\nif (!workspace_id) errors.push(contextError('workspace_id', rawWorkspaceId));\nif (!user_id) errors.push(contextError('user_id', rawUserId));\n\nconst context_ready_for_db = Boolean(workspace_id && user_id);\nconst has_conversation_session_id = Boolean(conversation_session_id);\nconst session_summary = String(item.message_text || '').trim().slice(0, 240) || 'WF-00A intake session';\n\nreturn [{ json: {\n  ...item,\n  workspace_id,\n  user_id,\n  project_id,\n  conversation_session_id,\n  channel: item.channel || 'web_chat',\n  context_ready_for_db,\n  has_conversation_session_id,\n  session_lookup_id: conversation_session_id,\n  session_create_payload: {\n    user_id,\n    workspace_id,\n    project_id,\n    session_type: 'prompt_clarification',\n    status: 'open',\n    summary: session_summary\n  },\n  errors\n} }];"
+      },
+      "id": "212cbae6-2836-4ad1-825b-5ef9e3ba13c0",
+      "name": "Resolve Intake Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -57824,
+        3504
+      ],
+      "notesInFlow": true,
+      "notes": "Uses only incoming IDs. Does not invent UUIDs or create placeholder users/workspaces."
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "conversation_sessions",
+        "limit": 1,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "id",
+              "condition": "eq",
+              "keyValue": "={{ $json.session_lookup_id }}"
+            }
+          ]
+        }
+      },
+      "id": "6f2be520-ece1-406e-9424-e76c32aba569",
+      "name": "Load Conversation Session",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -57152,
+        3328
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "i9vZO55NnCKQ8f4G",
+          "name": "Supabase account 3"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "session-exists",
+              "leftValue": "={{ Boolean($json.id) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "20dba300-b29a-422b-a5d0-77306aff3417",
+      "name": "IF Conversation Session Exists",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -56928,
+        3328
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Resolve Intake Context').first().json;\nconst s = $json || {};\nconst errors = Array.isArray(base.errors) ? [...base.errors] : [];\nif (!s.id) errors.push('conversation_session_load_failed');\nreturn [{ json: {\n  ...base,\n  conversation_session_id: s.id || base.conversation_session_id,\n  workspace_id: s.workspace_id || base.workspace_id,\n  user_id: s.user_id || base.user_id,\n  project_id: s.project_id || base.project_id,\n  resolved_session: s.id ? s : null,\n  session_resolution: s.id ? 'loaded' : 'failed',\n  errors\n} }];"
+      },
+      "id": "e0d39a02-10a9-4320-9275-e9128efa89b9",
+      "name": "Use Loaded Conversation Session",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -56480,
+        3280
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "conversation_sessions",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "user_id",
+              "fieldValue": "={{ $json.session_create_payload.user_id }}"
+            },
+            {
+              "fieldId": "workspace_id",
+              "fieldValue": "={{ $json.session_create_payload.workspace_id }}"
+            },
+            {
+              "fieldId": "project_id",
+              "fieldValue": "={{ $json.session_create_payload.project_id }}"
+            },
+            {
+              "fieldId": "session_type",
+              "fieldValue": "={{ $json.session_create_payload.session_type }}"
+            },
+            {
+              "fieldId": "status",
+              "fieldValue": "open"
+            },
+            {
+              "fieldId": "summary",
+              "fieldValue": "={{ $json.session_create_payload.summary }}"
+            }
+          ]
+        }
+      },
+      "id": "329fef68-96c2-4960-91a9-052851cdc0b3",
+      "name": "Create Conversation Session If Missing",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -56704,
+        3504
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "i9vZO55NnCKQ8f4G",
+          "name": "Supabase account 3"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('Resolve Intake Context').first().json;\nconst created = $json || {};\nconst errors = Array.isArray(base.errors) ? [...base.errors] : [];\nif (!created.id) errors.push('conversation_session_create_failed');\nreturn [{ json: {\n  ...base,\n  conversation_session_id: created.id || null,\n  workspace_id: created.workspace_id || base.workspace_id,\n  user_id: created.user_id || base.user_id,\n  project_id: created.project_id || base.project_id,\n  resolved_session: created.id ? created : null,\n  session_resolution: created.id ? 'created' : 'failed',\n  errors\n} }];"
+      },
+      "id": "c707cc96-ff14-47f1-94d5-0762cc86b896",
+      "name": "Session Context From Created",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -56480,
+        3504
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "conversation_messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "conversation_session_id",
+              "fieldValue": "={{ $json.conversation_session_id }}"
+            },
+            {
+              "fieldId": "sender",
+              "fieldValue": "user"
+            },
+            {
+              "fieldId": "message_text",
+              "fieldValue": "={{ $json.message_text }}"
+            },
+            {
+              "fieldId": "message_type",
+              "fieldValue": "={{ (() => {\n  const runtime = String($json.message_type || '').toLowerCase();\n  const kindsRaw = Array.isArray($json.attachments_summary?.attachment_kinds)\n    ? $json.attachments_summary.attachment_kinds\n    : [];\n  const uniqueKinds = [...new Set(kindsRaw.map(k => String(k || '').toLowerCase()).filter(Boolean))];\n\n  if (runtime === 'text') return 'text';\n  if (runtime === 'mixed') return 'text';\n  if (runtime === 'link') return 'text';\n  if (runtime === 'voice') return 'audio';\n  if (runtime === 'empty') return 'system_event';\n  if (runtime === 'image') return 'image';\n  if (runtime === 'audio') return 'audio';\n  if (runtime === 'video') return 'video';\n  if (runtime === 'file') return 'file';\n\n  if (runtime === 'media') {\n    if (uniqueKinds.length === 1 && ['image', 'audio', 'video'].includes(uniqueKinds[0])) {\n      return uniqueKinds[0];\n    }\n    return 'file';\n  }\n\n  return 'file';\n})() }}"
+            },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{ JSON.stringify({ runtime_message_type: $json.message_type, input_flags: $json.input_flags, attachments_summary: $json.attachments_summary, links: $json.links, raw_payload_summary: $json.metadata?.raw_payload_summary, original_channel: $json.channel }) }}"
+            }
+          ]
+        }
+      },
+      "id": "0a430ad3-703a-4c8e-93de-e2db03c4c4d3",
+      "name": "Save Incoming User Message",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -56256,
+        3408
+      ],
+      "credentials": {
+        "supabaseApi": {
+          "id": "i9vZO55NnCKQ8f4G",
+          "name": "Supabase account 3"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "conversation_messages",
+        "limit": 10,
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "conversation_session_id",
+              "condition": "eq",
+              "keyValue": "={{ $('Save Incoming User Message').first().json.conversation_session_id }}"
+            }
+          ]
+        }
+      },
+      "id": "04c6e445-eb14-42c5-952f-ac48243a4a3c",
+      "name": "Load Recent Conversation Messages",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -56032,
+        3408
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "i9vZO55NnCKQ8f4G",
+          "name": "Supabase account 3"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function safeRows(items) {\n  return items.map(i => i.json).filter(r => r && r.id && !r.error);\n}\nlet saved = {};\nlet sessionContext = {};\ntry { saved = $('Save Incoming User Message').first().json || {}; } catch (e) { saved = {}; }\ntry { sessionContext = $('Session Context From Created').first().json || {}; } catch (e) {}\ntry {\n  const loadedContext = $('Use Loaded Conversation Session').first().json || {};\n  if (loadedContext.conversation_session_id) sessionContext = loadedContext;\n} catch (e) {}\nif (!sessionContext || !sessionContext.workspace_id) {\n  try { sessionContext = $('Resolve Intake Context').first().json || {}; } catch (e) { sessionContext = {}; }\n}\nconst rows = safeRows($input.all())\n  .sort((a, b) => String(a.created_at || '').localeCompare(String(b.created_at || '')))\n  .slice(-10)\n  .map(r => ({\n    sender: r.sender || null,\n    message_text: r.message_text || '',\n    message_type: r.message_type || 'text',\n    created_at: r.created_at || null\n  }));\nconst errors = Array.isArray(sessionContext.errors) ? [...sessionContext.errors] : [];\nif (!saved.id) errors.push('conversation_message_save_failed');\nreturn [{ json: {\n  ...sessionContext,\n  conversation_session_id: saved.conversation_session_id || sessionContext.conversation_session_id || null,\n  conversation_message_id: saved.id || null,\n  conversation_memory: { last_messages: rows },\n  errors\n} }];"
+      },
+      "id": "07309ade-17fe-4716-8457-c303dd5195c7",
+      "name": "Build Compact Memory Packet",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -55808,
+        3408
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $json;\nconst uniqueErrors = [...new Set((Array.isArray(item.errors) ? item.errors : []).filter(Boolean))];\nconst output = {\n  intake_status: uniqueErrors.length ? 'failed' : 'ready',\n  workspace_id: item.workspace_id || null,\n  user_id: item.user_id || null,\n  project_id: item.project_id || null,\n  conversation_session_id: item.conversation_session_id || null,\n  conversation_message_id: item.conversation_message_id || null,\n  channel: item.channel || 'web_chat',\n  message_text: item.message_text || '',\n  message_type: item.message_type || 'empty',\n  links: Array.isArray(item.links) ? item.links : [],\n  attachments: Array.isArray(item.attachments) ? item.attachments : [],\n  attachments_summary: item.attachments_summary || {\n    has_attachments: false,\n    attachment_count: 0,\n    attachment_kinds: []\n  },\n  input_flags: item.input_flags || {\n    has_text: false,\n    has_images: false,\n    has_audio: false,\n    has_video: false,\n    has_links: false,\n    has_attachments: false,\n    is_empty: true\n  },\n  conversation_memory: item.conversation_memory || { last_messages: [] },\n  errors: uniqueErrors\n};\nreturn [{ json: output }];"
+      },
+      "id": "d975c2b2-7331-4843-97c4-0fce5e1c3a36",
+      "name": "Prepare Intake Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -55584,
+        3408
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "context-ready-for-db",
+              "leftValue": "={{ $json.context_ready_for_db }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "e28e8070-7cab-483c-a290-27eaff9cc1d9",
+      "name": "IF Context Ready For DB",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -57600,
+        3504
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-conversation-session-id",
+              "leftValue": "={{ $json.has_conversation_session_id }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1f8db20c-b395-4a62-a6d0-a7ff81009ed9",
+      "name": "IF Has Conversation Session ID",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -57376,
+        3408
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $json;\nconst uniqueErrors = [...new Set((Array.isArray(item.errors) ? item.errors : []).filter(Boolean))];\nconst output = {\n  intake_status: 'failed',\n  workspace_id: item.workspace_id || null,\n  user_id: item.user_id || null,\n  project_id: item.project_id || null,\n  conversation_session_id: null,\n  conversation_message_id: null,\n  channel: item.channel || 'web_chat',\n  message_text: item.message_text || '',\n  message_type: item.message_type || 'empty',\n  links: Array.isArray(item.links) ? item.links : [],\n  attachments: Array.isArray(item.attachments) ? item.attachments : [],\n  attachments_summary: item.attachments_summary || {\n    has_attachments: false,\n    attachment_count: 0,\n    attachment_kinds: []\n  },\n  input_flags: item.input_flags || {\n    has_text: false,\n    has_images: false,\n    has_audio: false,\n    has_video: false,\n    has_links: false,\n    has_attachments: false,\n    is_empty: true\n  },\n  conversation_memory: { last_messages: [] },\n  errors: uniqueErrors\n};\nreturn [{ json: output }];"
+      },
+      "id": "3c02a33c-101f-4f97-b8c0-4dd8cdfcc6c9",
+      "name": "Prepare Intake Output Without DB",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -55584,
+        3696
+      ],
+      "notesInFlow": true,
+      "notes": "Returns controlled failed intake output without any Supabase query/write when required DB context is missing or invalid."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "880b9961",
+              "leftValue": "={{ $json.intake_status === 'ready' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "372107e0-1bd1-48cf-8c5a-bf646dcb446c",
+      "name": "IF Intake Ready",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -55360,
+        3504
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const intake = $json;\nreturn [{\n  json: {\n    message_text: intake.message_text || '',\n    channel: intake.channel || 'web_chat',\n    attachments_summary: intake.attachments_summary || {\n      has_attachments: false,\n      attachment_count: 0,\n      attachment_kinds: []\n    },\n    conversation_memory: intake.conversation_memory || { last_messages: [] },\n    metadata: {\n      conversation_session_id: intake.conversation_session_id || null,\n      workspace_id: intake.workspace_id || null,\n      user_id: intake.user_id || null,\n      project_id: intake.project_id || null\n    },\n    intake\n  }\n}];"
+      },
+      "id": "52b68508-da7b-4d04-b4f6-b061069c8c28",
+      "name": "Prepare SW-00A Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -55136,
+        3408
+      ],
+      "notesInFlow": true,
+      "notes": "Maps intake output into the approved SW-00A input contract."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "eButVjP5mgOMf0xW",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/eButVjP5mgOMf0xW",
+          "cachedResultName": "SW-00A Input Normalizer Agent"
+        },
+        "options": {}
+      },
+      "id": "4fb92055-00fb-459f-8a42-9e63075bf37d",
+      "name": "Execute SW-00A Input Normalizer Agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -54912,
+        3408
+      ],
+      "notesInFlow": true,
+      "notes": "Calls approved sub-workflow. No OpenAI node is embedded in this workflow."
+    },
+    {
+      "parameters": {
+        "jsCode": "const normalizer_result = $json;\nconst sw00aInput = $('Prepare SW-00A Input').first().json;\nconst intake = sw00aInput.intake || {};\nreturn [{\n  json: {\n    normalized_input: normalizer_result,\n    attachments_summary: intake.attachments_summary || {\n      has_attachments: false,\n      attachment_count: 0,\n      attachment_kinds: []\n    },\n    conversation_memory: intake.conversation_memory || { last_messages: [] },\n    intake,\n    normalizer_result\n  }\n}];"
+      },
+      "id": "24a2a896-922f-46f8-89a3-2389c42d3647",
+      "name": "Prepare SW-00B Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -54688,
+        3408
+      ],
+      "notesInFlow": true,
+      "notes": "Maps SW-00A result into SW-00B input contract."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "vhghPwLMdpGzcdI3",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/vhghPwLMdpGzcdI3",
+          "cachedResultName": "SW-00B Intent Router Agent"
+        },
+        "options": {}
+      },
+      "id": "5b21fd63-6689-4db9-a5be-482432920576",
+      "name": "Execute SW-00B Intent Router Agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -54464,
+        3408
+      ],
+      "notesInFlow": true,
+      "notes": "Calls approved sub-workflow. No routing AI is embedded in this workflow."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8fef2773",
+              "leftValue": "={{ Boolean($json.needs_prompt_request) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b947dc37-fcb9-42fd-a621-0938d0cf8489",
+      "name": "IF Needs Prompt Request",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -54240,
+        3408
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const router_result = $json;\nconst base = $('Prepare SW-00B Input').first().json;\nreturn [{\n  json: {\n    normalized_input: base.normalized_input,\n    router_result,\n    attachments_summary: base.attachments_summary,\n    conversation_memory: base.conversation_memory,\n    intake: base.intake,\n    normalizer_result: base.normalizer_result\n  }\n}];"
+      },
+      "id": "ef327520-47ce-4dee-a7a5-957e585c5fa6",
+      "name": "Prepare SW-00C Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -54016,
+        3312
+      ],
+      "notesInFlow": true,
+      "notes": "Runs only when router says needs_prompt_request = true."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "z17iKtJSe2WLhEaK",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/z17iKtJSe2WLhEaK",
+          "cachedResultName": "SW-00C Brief Decision Extractor Agent"
+        },
+        "options": {}
+      },
+      "id": "f092becb-2818-4fae-99c4-cadf31d8db2d",
+      "name": "Execute SW-00C Brief Decision Extractor Agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -53792,
+        3312
+      ],
+      "notesInFlow": true,
+      "notes": "Calls approved sub-workflow only when router says needs_prompt_request = true. No database rows are created here."
+    },
+    {
+      "parameters": {
+        "jsCode": "const router_result = $json;\nconst base = $('Prepare SW-00B Input').first().json;\nreturn [{\n  json: {\n    intake: base.intake,\n    normalizer_result: base.normalizer_result,\n    router_result,\n    brief_decision_result: null\n  }\n}];"
+      },
+      "id": "6d06d199-4488-481a-ac59-918343e5098a",
+      "name": "Skip Brief Extractor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -53792,
+        3504
+      ],
+      "notesInFlow": true,
+      "notes": "Skips SW-00C when no prompt_request is needed."
+    },
+    {
+      "parameters": {
+        "jsCode": "let intake = null;\nlet normalizer_result = null;\nlet router_result = null;\nlet brief_decision_result = null;\n\nif ($json && Object.prototype.hasOwnProperty.call($json, 'brief_decision_result')) {\n  intake = $json.intake || null;\n  normalizer_result = $json.normalizer_result || null;\n  router_result = $json.router_result || null;\n  brief_decision_result = $json.brief_decision_result;\n} else {\n  brief_decision_result = $json || null;\n  const prepared = $('Prepare SW-00C Input').first().json;\n  intake = prepared.intake || null;\n  normalizer_result = prepared.normalizer_result || prepared.normalized_input || null;\n  router_result = prepared.router_result || null;\n}\n\nintake = intake || {};\nconst orchestration_status = {\n  status: 'intake_processed',\n  conversation_session_id: intake.conversation_session_id || null,\n  conversation_message_id: intake.conversation_message_id || null,\n  error_code: null,\n  error_message: null\n};\n\nreturn [{\n  json: {\n    normalized_input: normalizer_result,\n    router_result,\n    brief_decision_result,\n    orchestration_status,\n    intake,\n    normalizer_result,\n    errors: Array.isArray(intake.errors) ? intake.errors : [],\n    response_composer_input: {\n      normalized_input: normalizer_result,\n      router_result,\n      brief_decision_result,\n      orchestration_status\n    }\n  }\n}];"
+      },
+      "id": "d41a2704-84b0-440e-90b3-b70f58208ca4",
+      "name": "Prepare SW-00D Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -53568,
+        3408
+      ],
+      "notesInFlow": true,
+      "notes": "Builds response composer input from normalized, routed, and optional brief decision results."
+    },
+    {
+      "parameters": {
+        "jsCode": "const intake = $json;\nconst errors = Array.isArray(intake.errors) ? intake.errors : [];\nconst normalized_input = {\n  detected_language: 'other',\n  reply_language: 'en',\n  raw_input: intake.message_text || '',\n  normalized_english_input: '',\n  message_summary_english: 'Intake failed before input normalization.',\n  is_empty_or_noise: true,\n  normalization_status: 'fallback',\n  normalization_error: errors.join(',') || 'intake_failed'\n};\nconst router_result = {\n  intent: 'unsupported',\n  route: 'unsupported',\n  confidence: 0,\n  needs_prompt_request: false,\n  needs_media_processing: false,\n  needs_clarification: false,\n  reasoning_summary: 'Intake failed before routing.',\n  unsupported_reason: errors\n};\nconst orchestration_status = {\n  status: 'intake_failed',\n  conversation_session_id: intake.conversation_session_id || null,\n  conversation_message_id: intake.conversation_message_id || null,\n  error_code: 'intake_failed',\n  error_message: errors\n};\nreturn [{\n  json: {\n    normalized_input,\n    router_result,\n    brief_decision_result: null,\n    orchestration_status,\n    intake,\n    normalizer_result: normalized_input,\n    errors,\n    response_composer_input: {\n      normalized_input,\n      router_result,\n      brief_decision_result: null,\n      orchestration_status\n    }\n  }\n}];"
+      },
+      "id": "fa2c0600-7f01-42c2-a5c6-2d5c28ccf710",
+      "name": "Prepare Failed SW-00D Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -53568,
+        3664
+      ],
+      "notesInFlow": true,
+      "notes": "Builds response composer input for failed intake without calling SW-00A/B/C."
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "aAZEFE8gafjkPlz8",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/aAZEFE8gafjkPlz8",
+          "cachedResultName": "SW-00D Response Composer Agent"
+        },
+        "options": {}
+      },
+      "id": "23e10203-e9a2-4380-8f05-dc98f7b2df0b",
+      "name": "Execute SW-00D Response Composer Agent",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.1,
+      "position": [
+        -53344,
+        3504
+      ],
+      "notesInFlow": true,
+      "notes": "Calls approved response composer sub-workflow."
+    },
+    {
+      "parameters": {
+        "jsCode": "function firstNodeJson(name) {\n  try { return $(name).first().json; } catch (e) { return null; }\n}\n\nconst composer_result = $json || {};\nlet prep = firstNodeJson('Prepare SW-00D Input');\nif (!prep) prep = firstNodeJson('Prepare Failed SW-00D Input');\nprep = prep || {};\nconst intake = prep.intake || {};\nconst errors = Array.isArray(prep.errors) ? [...prep.errors] : [];\nconst message = String(composer_result.message_to_user || '').trim();\nif (!message) errors.push('empty_response_composer_message');\nconst can_save_assistant_message = Boolean(intake.conversation_session_id && message);\nreturn [{\n  json: {\n    intake,\n    normalizer_result: prep.normalizer_result || prep.normalized_input || {},\n    router_result: prep.router_result || {},\n    brief_decision_result: prep.brief_decision_result || null,\n    composer_result: {\n      reply_language: composer_result.reply_language || prep.normalized_input?.reply_language || 'en',\n      response_type: composer_result.response_type || 'error',\n      message_to_user: message || 'I could not prepare a response for this request. Please try again with a clearer creative brief.',\n      should_continue_pipeline: composer_result.should_continue_pipeline === true || composer_result.should_continue_pipeline === 'true',\n      should_ask_user: composer_result.should_ask_user === true || composer_result.should_ask_user === 'true',\n      question_to_user: composer_result.question_to_user ?? null\n    },\n    conversation_session_id: intake.conversation_session_id || null,\n    user_message_id: intake.conversation_message_id || null,\n    can_save_assistant_message,\n    errors\n  }\n}];"
+      },
+      "id": "8bfa69fd-f04a-42d6-9a23-d8a8b67796b5",
+      "name": "Build Assistant Response Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -53120,
+        3504
+      ],
+      "notesInFlow": true,
+      "notes": "Combines SW-00D output with intake and agent results before optional assistant message save."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d0ba92c8",
+              "leftValue": "={{ Boolean($json.can_save_assistant_message) }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "171761df-04e1-42fa-9ea5-ca1c0e770bfc",
+      "name": "IF Can Save Assistant Message",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -52896,
+        3504
+      ]
+    },
+    {
+      "parameters": {
+        "tableId": "conversation_messages",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "conversation_session_id",
+              "fieldValue": "={{ $json.conversation_session_id }}"
+            },
+            {
+              "fieldId": "sender",
+              "fieldValue": "assistant"
+            },
+            {
+              "fieldId": "message_text",
+              "fieldValue": "={{ $json.composer_result.message_to_user }}"
+            },
+            {
+              "fieldId": "message_type",
+              "fieldValue": "text"
+            },
+            {
+              "fieldId": "metadata",
+              "fieldValue": "={{ JSON.stringify({ response_type: $json.composer_result.response_type, should_continue_pipeline: $json.composer_result.should_continue_pipeline, should_ask_user: $json.composer_result.should_ask_user, question_to_user: $json.composer_result.question_to_user, sw00a_result: $json.normalizer_result, sw00b_result: $json.router_result, sw00c_result: $json.brief_decision_result }) }}"
+            }
+          ]
+        }
+      },
+      "id": "80e29a85-1367-4e39-986f-5ab3ddc45ebd",
+      "name": "Save Assistant Message",
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        -52672,
+        3424
+      ],
+      "notesInFlow": true,
+      "credentials": {
+        "supabaseApi": {
+          "id": "i9vZO55NnCKQ8f4G",
+          "name": "Supabase account 3"
+        }
+      },
+      "continueOnFail": true,
+      "notes": "Only the assistant response is inserted in this stage."
+    },
+    {
+      "parameters": {
+        "jsCode": "function firstNodeJson(name) {\n  try { return $(name).first().json; } catch (e) { return null; }\n}\n\nlet ctx = firstNodeJson('Build Assistant Response Context') || $json || {};\nlet saved = {};\ntry { saved = $('Save Assistant Message').first().json || {}; } catch (e) { saved = {}; }\nconst errors = Array.isArray(ctx.errors) ? [...ctx.errors] : [];\nif (ctx.can_save_assistant_message && !saved.id) errors.push('assistant_message_save_failed');\nconst uniqueErrors = [...new Set(errors.filter(Boolean))];\nconst composer = ctx.composer_result || {};\nconst intake = ctx.intake || {};\nconst responseType = composer.response_type || 'error';\nconst wf_status = uniqueErrors.length || responseType === 'error' ? 'failed' : 'ready';\nreturn [{\n  json: {\n    wf_status,\n    conversation_session_id: ctx.conversation_session_id || intake.conversation_session_id || null,\n    user_message_id: ctx.user_message_id || intake.conversation_message_id || null,\n    assistant_message_id: saved.id || null,\n    message_to_user: composer.message_to_user || '',\n    response_type: responseType,\n    should_continue_pipeline: composer.should_continue_pipeline === true,\n    should_ask_user: composer.should_ask_user === true,\n    question_to_user: composer.question_to_user ?? null,\n    intake,\n    normalizer_result: ctx.normalizer_result || {},\n    router_result: ctx.router_result || {},\n    brief_decision_result: ctx.brief_decision_result || {},\n    errors: uniqueErrors\n  }\n}];"
+      },
+      "id": "1d84727a-8a7f-4845-b006-3867d03922ab",
+      "name": "Build WF-00 Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -52448,
+        3504
+      ],
+      "notesInFlow": true,
+      "notes": "Builds the final approved WF-00 response contract."
+    },
+    {
+      "parameters": {
+        "jsCode": "const allowedKeys = [\n  'wf_status',\n  'conversation_session_id',\n  'user_message_id',\n  'assistant_message_id',\n  'message_to_user',\n  'response_type',\n  'should_continue_pipeline',\n  'should_ask_user',\n  'question_to_user',\n  'intake',\n  'normalizer_result',\n  'router_result',\n  'brief_decision_result',\n  'errors'\n];\nconst out = {};\nfor (const key of allowedKeys) out[key] = $json[key];\nreturn [{ json: out }];"
+      },
+      "id": "f9b50589-6de3-4e77-a270-d64ac21f44ac",
+      "name": "Return WF-00 Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -51104,
+        3520
+      ],
+      "notesInFlow": true,
+      "notes": "Returns only the approved final WF-00 response contract."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "8fce9ace-cb00-4438-b685-8cf674dfb1f5",
+              "leftValue": "={{ $json.should_continue_pipeline === true && $json.brief_decision_result?.can_create_prompt_request === true }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "98e7d8ae-28b8-4729-9954-67bdb0e359b0",
+              "leftValue": "",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -52224,
+        3504
+      ],
+      "id": "420fa0d7-5a81-4f32-bffc-267986ba48e2",
+      "name": "IF Should Create Prompt Request"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "CGQw0LLZW84S6EKI",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/CGQw0LLZW84S6EKI",
+          "cachedResultName": "WF-01 Prompt Request Creator"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -52000,
+        3424
+      ],
+      "id": "17156d83-478a-4cda-816f-e88dd9e2509e",
+      "name": "Execute WF-01 Prompt Request Creator"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ea0f306f-e769-481d-a558-68840d610261",
+              "leftValue": "={{ $json.wf01_status === 'created' && Boolean($json.prompt_request_id) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -51776,
+        3424
+      ],
+      "id": "9b05ca56-16fc-4ebd-894d-718002bee081",
+      "name": "IF WF-01 Created"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "3wrT9YpF0X4ulLrX",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/3wrT9YpF0X4ulLrX",
+          "cachedResultName": "WF-10 Prompt Generation Engine"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -51552,
+        3328
+      ],
+      "id": "55b54c80-9110-444c-b01e-f2a66d952d1d",
+      "name": "Execute WF-10 Prompt Generation Engine"
+    },
+    {
+      "parameters": {
+        "jsCode": "const wf00 = $('Build WF-00 Response').first().json;\nconst wf01 = $('Execute WF-01 Prompt Request Creator').first().json || {};\nconst wf10 = $json || {};\n\nconst errors = [\n  ...(Array.isArray(wf00.errors) ? wf00.errors : []),\n  ...(Array.isArray(wf01.errors) ? wf01.errors : []),\n  ...(Array.isArray(wf10.errors) ? wf10.errors : [])\n];\n\nreturn [\n  {\n    json: {\n      ...wf00,\n\n      wf01_result: wf01,\n      wf10_result: wf10,\n\n      prompt_request_id: wf01.prompt_request_id || wf10.prompt_request_id || null,\n      generated_output_id: wf10.generated_output_id || null,\n\n      generation_layer: wf10.generation_layer || null,\n      next_workflow: wf10.next_workflow || wf01.next_workflow || null,\n\n      should_continue_pipeline: wf10.wf10_status === 'generated',\n      errors: [...new Set(errors.filter(Boolean))]\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -51328,
+        3328
+      ],
+      "id": "6f9c176a-c745-45db-99c0-bc722c7e0782",
+      "name": "Build WF-00 + WF-01 + WF-10 Response"
+    },
+    {
+      "parameters": {
+        "jsCode": "const wf00 = $('Build WF-00 Response').first().json;\nconst wf01 = $json || {};\n\nreturn [{\n  json: {\n    ...wf00,\n    wf01_result: wf01,\n    prompt_request_id: wf01.prompt_request_id || null,\n    next_workflow: wf01.next_workflow || null,\n    errors: [\n      ...(Array.isArray(wf00.errors) ? wf00.errors : []),\n      ...(Array.isArray(wf01.errors) ? wf01.errors : [])\n    ]\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -51328,
+        3520
+      ],
+      "id": "748e8221-0b4d-4905-9df6-5d60939d96fc",
+      "name": "Build WF-00 + WF-01 Response"
+    },
+    {
+      "parameters": {
+        "jsCode": "function asArray(value) {\n  if (!value) return [];\n  return Array.isArray(value) ? value : [value];\n}\n\nfunction pick(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null && value !== '') return value;\n  }\n  return null;\n}\n\nfunction compactObject(obj) {\n  const out = {};\n  for (const [key, value] of Object.entries(obj || {})) {\n    if (value !== undefined) out[key] = value;\n  }\n  return out;\n}\n\nfunction parseJsonSafe(value) {\n  if (!value) return null;\n\n  if (typeof value === 'object' && !Array.isArray(value)) {\n    return value;\n  }\n\n  if (typeof value === 'string') {\n    try {\n      return JSON.parse(value);\n    } catch (e) {\n      return null;\n    }\n  }\n\n  return null;\n}\n\nfunction hasPayloadKeys(obj) {\n  if (!obj || typeof obj !== 'object') return false;\n\n  return Boolean(\n    obj.message_text ||\n    obj.text ||\n    obj.chatInput ||\n    obj.raw_message_text ||\n    obj.message ||\n    obj.workspace_id ||\n    obj.workspaceId ||\n    obj.user_id ||\n    obj.userId ||\n    obj.attachments ||\n    obj.files ||\n    obj.media\n  );\n}\n\nasync function readBinaryJson() {\n  const input = $input.first();\n  const binary = input.binary || {};\n  const keys = Object.keys(binary);\n\n  for (const key of keys) {\n    try {\n      const buffer = await this.helpers.getBinaryDataBuffer(0, key);\n      const text = buffer.toString('utf8');\n      const parsed = parseJsonSafe(text);\n\n      if (parsed) {\n        return {\n          parsed,\n          binary_key: key,\n          binary_text_preview: text.slice(0, 300)\n        };\n      }\n    } catch (e) {}\n  }\n\n  return {\n    parsed: null,\n    binary_key: null,\n    binary_text_preview: null\n  };\n}\n\nfunction normalizeAttachment(a, index) {\n  const raw = a || {};\n  return compactObject({\n    index,\n    file_name: pick(raw.file_name, raw.fileName, raw.name, null),\n    file_type: pick(raw.file_type, raw.fileType, raw.type, null),\n    mime_type: pick(raw.mime_type, raw.mimeType, raw.mime, null),\n    storage_bucket: pick(raw.storage_bucket, raw.storageBucket, raw.bucket, null),\n    file_path: pick(raw.file_path, raw.filePath, raw.path, null),\n    public_url: pick(raw.public_url, raw.publicUrl, raw.url, null),\n    metadata: raw.metadata || raw.meta || {}\n  });\n}\n\nconst raw = $json || {};\nconst input = $input.first();\nconst binary = input.binary || {};\n\nconst binaryRead = await readBinaryJson.call(this);\n\nconst bodyCandidates = [\n  parseJsonSafe(raw.body),\n  parseJsonSafe(raw.body?.body),\n  parseJsonSafe(raw.data),\n  parseJsonSafe(raw.rawBody),\n  binaryRead.parsed,\n  raw\n].filter(Boolean);\n\nconst body =\n  bodyCandidates.find(hasPayloadKeys) ||\n  binaryRead.parsed ||\n  bodyCandidates[0] ||\n  raw;\n\nconst parsedFromBody = Boolean(\n  parseJsonSafe(raw.body) ||\n  parseJsonSafe(raw.body?.body) ||\n  parseJsonSafe(raw.data) ||\n  parseJsonSafe(raw.rawBody)\n);\n\nconst headers = raw.headers || {};\nconst query = raw.query || {};\n\nconst isChatTrigger = raw.chatInput !== undefined || raw.sessionId !== undefined;\n\nconst channel = String(pick(\n  body.channel,\n  raw.channel,\n  query.channel,\n  isChatTrigger ? 'n8n_chat_trigger' : null,\n  headers['x-channel'],\n  'web_chat'\n));\n\nconst attachmentSource = pick(\n  body.attachments,\n  body.files,\n  body.media,\n  raw.attachments,\n  raw.files,\n  raw.media,\n  []\n);\n\nconst attachments = asArray(attachmentSource).map(normalizeAttachment);\n\nconst messageText = String(pick(\n  body.message_text,\n  body.text,\n  body.chatInput,\n  body.raw_message_text,\n  body.message,\n  raw.message_text,\n  raw.text,\n  raw.chatInput,\n  raw.raw_message_text,\n  raw.message,\n  query.message_text,\n  query.text,\n  ''\n) ?? '');\n\nconst metadata = {\n  ...(body.metadata || raw.metadata || raw.meta || {}),\n  received_at: new Date().toISOString(),\n  raw_payload_summary: {\n    parsed_from_body: parsedFromBody,\n    parsed_from_binary: Boolean(binaryRead.parsed),\n    selected_body_has_payload_keys: hasPayloadKeys(body),\n    binary_key: binaryRead.binary_key,\n    binary_text_preview: binaryRead.binary_text_preview,\n    body_type: typeof raw.body,\n    raw_top_level_keys: Object.keys(raw || {}).slice(0, 50),\n    body_top_level_keys: Object.keys(body || {}).slice(0, 50),\n    binary_keys: Object.keys(binary || {}),\n    attachment_count: attachments.length,\n    trigger_shape: isChatTrigger ? 'n8n_chat_trigger' : 'webhook_or_direct'\n  },\n  original_channel: channel\n};\n\nreturn [\n  {\n    json: {\n      workspace_id: pick(\n        body.workspace_id,\n        body.workspaceId,\n        raw.workspace_id,\n        raw.workspaceId,\n        query.workspace_id,\n        headers['x-workspace-id'],\n        null\n      ),\n      user_id: pick(\n        body.user_id,\n        body.userId,\n        raw.user_id,\n        raw.userId,\n        query.user_id,\n        headers['x-user-id'],\n        null\n      ),\n      project_id: pick(\n        body.project_id,\n        body.projectId,\n        raw.project_id,\n        raw.projectId,\n        query.project_id,\n        null\n      ),\n      conversation_session_id: pick(\n        body.conversation_session_id,\n        body.conversationSessionId,\n        body.session_id,\n        body.sessionId,\n        raw.conversation_session_id,\n        raw.sessionId,\n        raw.session_id,\n        query.conversation_session_id,\n        null\n      ),\n      channel,\n      message_text: messageText,\n      message_type: 'empty',\n      links: [],\n      attachments,\n      attachments_summary: {\n        has_attachments: attachments.length > 0,\n        attachment_count: attachments.length,\n        attachment_kinds: []\n      },\n      input_flags: {\n        has_text: messageText.trim().length > 0,\n        has_images: false,\n        has_audio: false,\n        has_video: false,\n        has_links: false,\n        has_attachments: attachments.length > 0,\n        is_empty: messageText.trim().length === 0 && attachments.length === 0\n      },\n      metadata,\n      errors: []\n    }\n  }\n];"
+      },
+      "id": "5324ae49-816c-4c8d-8fc6-f750959aeba2",
+      "name": "Normalize Incoming Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -58720,
+        3504
+      ],
+      "notesInFlow": true,
+      "notes": "Normalizes webhook/chat payload into one internal shape. No AI."
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json || {};\n\nconst messageText =\n  raw.chatInput ??\n  raw.message_text ??\n  raw.text ??\n  raw.message ??\n  '';\n\nreturn {\n  json: {\n    ...raw,\n\n    message_text: String(messageText || ''),\n    channel: raw.channel || 'n8n_chat_test',\n\n    workspace_id:\n      raw.workspace_id ||\n      raw.metadata?.workspace_id ||\n      '22222222-2222-4222-8222-222222222222',\n\n    user_id:\n      raw.user_id ||\n      raw.metadata?.user_id ||\n      '11111111-1111-4111-8111-111111111111',\n\n    project_id:\n      raw.project_id ?? null,\n\n    conversation_session_id:\n      raw.conversation_session_id ?? null,\n\n    attachments:\n      Array.isArray(raw.attachments) ? raw.attachments : [],\n\n    metadata: {\n      ...(raw.metadata || {}),\n      source: raw.metadata?.source || 'n8n_chat_trigger_manual_test',\n      context_injected_for_chat_test: true\n    }\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -58944,
+        3408
+      ],
+      "id": "9c132369-5b6a-471b-8eb3-89f0e4536639",
+      "name": "Attach Chat Test Context"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL + '/functions/v1/ingest-research-document' }}",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "={{ JSON.stringify({ Authorization: 'Bearer ' + $env.SUPABASE_ANON_KEY, apikey: $env.SUPABASE_ANON_KEY, 'Content-Type': 'application/json' }) }}",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "title",
+              "value": "={{ $json.title || 'AI Creative Generation Model & Platform Research Report' }}"
+            },
+            {
+              "name": "file_name",
+              "value": "={{ $binary.research_file?.mimeType || 'text/markdown' }}"
+            },
+            {
+              "name": "content",
+              "value": "={{ $json.content }}"
+            },
+            {
+              "name": "checked_at",
+              "value": "2026-05-12T00:00:00Z"
+            },
+            {
+              "name": "workspace_id"
+            },
+            {
+              "name": "raw_part_size",
+              "value": "12000"
+            },
+            {
+              "name": "chunk_char_size",
+              "value": "4500"
+            },
+            {
+              "name": "metadata",
+              "value": "={{ {   purpose: 'AI Creative Direction OS model registry and prompt adaptation knowledge base',   source_quality: 'web_researched',   uploaded_via: 'n8n_form_trigger',   intended_usage: [     'model routing',     'prompt adaptation',     'platform rules',     'image model prompting',     'video model prompting',     'reference support rules',     'negative prompt support rules',     'workflow knowledge retrieval'   ],   intended_tables: [     'ai_generation_models',     'model_prompt_adaptation_rules',     'platform_rules',     'creative_knowledge_blocks',     'prompt_writing_rules',     'prompt_validation_rules',     'repair_strategies'   ] } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        -52496,
+        2704
+      ],
+      "id": "d3586c11-c496-4b64-b94f-619de88dc998",
+      "name": "HTTP Request",
+      "notesInFlow": true,
+      "notes": "Authorization and apikey now use n8n environment variables: SUPABASE_URL and SUPABASE_ANON_KEY. Configure them in n8n before running this node."
+    },
+    {
+      "parameters": {
+        "formTitle": "Research Document Upload",
+        "formDescription": "Upload a research markdown/text file to ingest into AI Creative Direction OS.\n",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "research_file",
+              "fieldType": "file"
+            },
+            {
+              "fieldLabel": "title"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        -52944,
+        2704
+      ],
+      "id": "357aa2aa-46e9-4914-b508-a6180d086377",
+      "name": "On form submission",
+      "webhookId": "02c7e5ba-c1a1-4692-aef2-2d6bc5a87af5"
+    },
+    {
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "research_file",
+        "destinationKey": "content",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -52736,
+        2704
+      ],
+      "id": "a64d35ea-4c6f-493e-babf-937db4b3dcf4",
+      "name": "Extract from File"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Normalize Incoming Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "n8n Chat Trigger": {
+      "main": [
+        [
+          {
+            "node": "Attach Chat Test Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Input Types": {
+      "main": [
+        [
+          {
+            "node": "Extract Links",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Links": {
+      "main": [
+        [
+          {
+            "node": "Build Attachments Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Attachments Summary": {
+      "main": [
+        [
+          {
+            "node": "Resolve Intake Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve Intake Context": {
+      "main": [
+        [
+          {
+            "node": "IF Context Ready For DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Context Ready For DB": {
+      "main": [
+        [
+          {
+            "node": "IF Has Conversation Session ID",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Intake Output Without DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Intake Output Without DB": {
+      "main": [
+        [
+          {
+            "node": "IF Intake Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has Conversation Session ID": {
+      "main": [
+        [
+          {
+            "node": "Load Conversation Session",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Conversation Session If Missing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Conversation Session": {
+      "main": [
+        [
+          {
+            "node": "IF Conversation Session Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Conversation Session Exists": {
+      "main": [
+        [
+          {
+            "node": "Use Loaded Conversation Session",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Create Conversation Session If Missing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Use Loaded Conversation Session": {
+      "main": [
+        [
+          {
+            "node": "Save Incoming User Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Conversation Session If Missing": {
+      "main": [
+        [
+          {
+            "node": "Session Context From Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Session Context From Created": {
+      "main": [
+        [
+          {
+            "node": "Save Incoming User Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Incoming User Message": {
+      "main": [
+        [
+          {
+            "node": "Load Recent Conversation Messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Recent Conversation Messages": {
+      "main": [
+        [
+          {
+            "node": "Build Compact Memory Packet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Compact Memory Packet": {
+      "main": [
+        [
+          {
+            "node": "Prepare Intake Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Intake Output": {
+      "main": [
+        [
+          {
+            "node": "IF Intake Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Intake Ready": {
+      "main": [
+        [
+          {
+            "node": "Prepare SW-00A Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Failed SW-00D Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare SW-00A Input": {
+      "main": [
+        [
+          {
+            "node": "Execute SW-00A Input Normalizer Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute SW-00A Input Normalizer Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare SW-00B Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare SW-00B Input": {
+      "main": [
+        [
+          {
+            "node": "Execute SW-00B Intent Router Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute SW-00B Intent Router Agent": {
+      "main": [
+        [
+          {
+            "node": "IF Needs Prompt Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Needs Prompt Request": {
+      "main": [
+        [
+          {
+            "node": "Prepare SW-00C Input",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip Brief Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare SW-00C Input": {
+      "main": [
+        [
+          {
+            "node": "Execute SW-00C Brief Decision Extractor Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute SW-00C Brief Decision Extractor Agent": {
+      "main": [
+        [
+          {
+            "node": "Prepare SW-00D Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip Brief Extractor": {
+      "main": [
+        [
+          {
+            "node": "Prepare SW-00D Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare SW-00D Input": {
+      "main": [
+        [
+          {
+            "node": "Execute SW-00D Response Composer Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Failed SW-00D Input": {
+      "main": [
+        [
+          {
+            "node": "Execute SW-00D Response Composer Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute SW-00D Response Composer Agent": {
+      "main": [
+        [
+          {
+            "node": "Build Assistant Response Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Assistant Response Context": {
+      "main": [
+        [
+          {
+            "node": "IF Can Save Assistant Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Can Save Assistant Message": {
+      "main": [
+        [
+          {
+            "node": "Save Assistant Message",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build WF-00 Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Assistant Message": {
+      "main": [
+        [
+          {
+            "node": "Build WF-00 Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WF-00 Response": {
+      "main": [
+        [
+          {
+            "node": "IF Should Create Prompt Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Should Create Prompt Request": {
+      "main": [
+        [
+          {
+            "node": "Execute WF-01 Prompt Request Creator",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Return WF-00 Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute WF-01 Prompt Request Creator": {
+      "main": [
+        [
+          {
+            "node": "IF WF-01 Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF WF-01 Created": {
+      "main": [
+        [
+          {
+            "node": "Execute WF-10 Prompt Generation Engine",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build WF-00 + WF-01 Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute WF-10 Prompt Generation Engine": {
+      "main": [
+        [
+          {
+            "node": "Build WF-00 + WF-01 + WF-10 Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WF-00 + WF-01 + WF-10 Response": {
+      "main": [
+        [
+          {
+            "node": "Return WF-00 Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build WF-00 + WF-01 Response": {
+      "main": [
+        [
+          {
+            "node": "Return WF-00 Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Incoming Payload": {
+      "main": [
+        [
+          {
+            "node": "Detect Input Types",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Attach Chat Test Context": {
+      "main": [
+        [
+          {
+            "node": "Normalize Incoming Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": true
+  },
+  "versionId": "74440cb7-6ce2-4389-bb80-c74e2bcf1c65",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "078ebb9a69bf38cf4453fd8eeb25933e0bb708831adc9bbc920c51805e3f39df"
+  },
+  "id": "ywesBUTbjonf5M7U",
+  "tags": []
+}

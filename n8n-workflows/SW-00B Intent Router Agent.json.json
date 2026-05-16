@@ -1,0 +1,214 @@
+{
+  "name": "SW-00B Intent Router Agent",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "7b075775-a0c0-4a07-b242-30f47afa4882",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [
+        144,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "function asArray(value) {\n  if (!value) return [];\n  return Array.isArray(value) ? value : [value];\n}\nfunction pick(...values) {\n  for (const value of values) {\n    if (value !== undefined && value !== null) return value;\n  }\n  return null;\n}\nfunction compactMessages(messages) {\n  return asArray(messages).slice(-10).map(m => ({\n    sender: String(m.sender ?? ''),\n    message_text: String(m.message_text ?? m.text ?? ''),\n    message_type: String(m.message_type ?? 'text'),\n    created_at: m.created_at ?? null\n  }));\n}\nfunction toBool(value) {\n  return value === true || value === 'true';\n}\nconst raw = $json || {};\nconst normalizedSource = raw.normalized_input || raw.normalizedInput || raw.sw00a_result || raw.input || raw;\nconst normalized_input = {\n  detected_language: String(pick(normalizedSource.detected_language, raw.detected_language, 'other')),\n  reply_language: String(pick(normalizedSource.reply_language, raw.reply_language, 'other')),\n  raw_input: String(pick(normalizedSource.raw_input, raw.raw_input, raw.message_text, raw.chatInput, '')),\n  normalized_english_input: String(pick(normalizedSource.normalized_english_input, raw.normalized_english_input, '')),\n  message_summary_english: String(pick(normalizedSource.message_summary_english, raw.message_summary_english, '')),\n  is_empty_or_noise: toBool(pick(normalizedSource.is_empty_or_noise, raw.is_empty_or_noise, false)),\n  normalization_status: String(pick(normalizedSource.normalization_status, raw.normalization_status, 'success')),\n  normalization_error: pick(normalizedSource.normalization_error, raw.normalization_error, null)\n};\nconst attachmentsSource = pick(raw.attachments_summary, raw.attachmentsSummary, normalizedSource.attachments_summary, normalizedSource.attachmentsSummary, raw.media, {});\nconst attachments_summary = {\n  has_attachments: toBool(attachmentsSource.has_attachments ?? attachmentsSource.hasAttachments ?? false),\n  attachment_count: Number(attachmentsSource.attachment_count ?? attachmentsSource.attachmentCount ?? 0),\n  attachment_kinds: asArray(attachmentsSource.attachment_kinds ?? attachmentsSource.attachmentKinds ?? attachmentsSource.kinds ?? []).map(String)\n};\nconst memorySource = raw.conversation_memory || raw.memory || normalizedSource.conversation_memory || {};\nconst conversation_memory = {\n  last_messages: compactMessages(memorySource.last_messages || raw.last_messages || []),\n  recent_prompt_requests: asArray(memorySource.recent_prompt_requests || raw.recent_prompt_requests || []).slice(0, 5).map(r => ({\n    id: r.id ?? null,\n    raw_input: r.raw_input ?? null,\n    normalized_brief: r.normalized_brief ?? null,\n    output_type: r.output_type ?? null,\n    platform: r.platform ?? null,\n    status: r.status ?? null,\n    created_at: r.created_at ?? null\n  }))\n};\nreturn [{\n  json: {\n    normalized_input,\n    attachments_summary,\n    conversation_memory\n  }\n}];"
+      },
+      "id": "48485789-3008-4dbc-8be5-fee1f8512e40",
+      "name": "Validate Router Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        384,
+        160
+      ],
+      "notesInFlow": true,
+      "notes": "Accepts direct SW-00A fields or normalized_input object. No Supabase reads/writes."
+    },
+    {
+      "parameters": {
+        "jsCode": "const router_input = {\n  normalized_input: $json.normalized_input,\n  attachments_summary: $json.attachments_summary,\n  recent_conversation_messages: $json.conversation_memory?.last_messages || [],\n  recent_prompt_requests: $json.conversation_memory?.recent_prompt_requests || []\n};\nreturn [{ json: { ...$json, router_input } }];"
+      },
+      "id": "8e48aea8-f1b8-408d-8bbe-06f91569f8eb",
+      "name": "Prepare OpenAI Router Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        160
+      ],
+      "notesInFlow": true,
+      "notes": "Builds compact router_input for the single AI call."
+    },
+    {
+      "parameters": {
+        "jsCode": "function baseInput() {\n  try { return $('Validate Router Input').first().json; } catch (e) { return {}; }\n}\nfunction extractText(obj) {\n  if (typeof obj === 'string') return obj;\n  return obj.output\n    ?? obj.text\n    ?? obj.content\n    ?? obj.message?.content\n    ?? obj.choices?.[0]?.message?.content\n    ?? obj.data?.choices?.[0]?.message?.content\n    ?? obj.response?.body?.choices?.[0]?.message?.content\n    ?? JSON.stringify(obj);\n}\nfunction parseJsonLoose(text) {\n  if (typeof text !== 'string') return null;\n  try { return JSON.parse(text); } catch (e) {}\n  const fenced = text.match(/```(?:json)?\\s*([\\s\\S]*?)```/i);\n  if (fenced) {\n    try { return JSON.parse(fenced[1]); } catch (e) {}\n  }\n  const start = text.indexOf('{');\n  const end = text.lastIndexOf('}');\n  if (start >= 0 && end > start) {\n    try { return JSON.parse(text.slice(start, end + 1)); } catch (e) {}\n  }\n  return null;\n}\nfunction toBool(value) {\n  return value === true || value === 'true';\n}\nfunction clampConfidence(value) {\n  const n = Number(value);\n  if (!Number.isFinite(n)) return 0;\n  return Math.max(0, Math.min(1, n));\n}\nfunction unsupported(reason, summary = null) {\n  return {\n    intent: 'unsupported',\n    route: 'unsupported',\n    confidence: 0,\n    needs_prompt_request: false,\n    needs_media_processing: false,\n    needs_clarification: false,\n    reasoning_summary: summary || 'Router could not confidently classify the request.',\n    unsupported_reason: reason\n  };\n}\nconst input = baseInput();\nconst normalized = input.normalized_input || {};\nif (normalized.is_empty_or_noise === true) {\n  return [{ json: unsupported('empty_or_noise_input', 'SW-00A marked the input as empty or noise.') }];\n}\nconst parsed = parseJsonLoose(extractText($json));\nif (!parsed || typeof parsed !== 'object') {\n  return [{ json: unsupported('json_parse_failed', 'Router AI output was not valid JSON.') }];\n}\nconst allowedIntents = new Set([\n  'new_prompt_request',\n  'prompt_revision',\n  'reference_analysis',\n  'product_lock_request',\n  'character_lock_request',\n  'campaign_request',\n  'general_question',\n  'unsupported'\n]);\nconst allowedRoutes = new Set([\n  'create_prompt_request',\n  'revise_existing_prompt',\n  'reference_analysis_handoff',\n  'product_lock_handoff',\n  'character_lock_handoff',\n  'campaign_handoff',\n  'answer_general_question',\n  'unsupported'\n]);\nconst expectedRouteByIntent = {\n  new_prompt_request: 'create_prompt_request',\n  prompt_revision: 'revise_existing_prompt',\n  reference_analysis: 'reference_analysis_handoff',\n  product_lock_request: 'product_lock_handoff',\n  character_lock_request: 'character_lock_handoff',\n  campaign_request: 'campaign_handoff',\n  general_question: 'answer_general_question',\n  unsupported: 'unsupported'\n};\nlet intent = String(parsed.intent ?? '').trim();\nlet route = String(parsed.route ?? '').trim();\nif (!allowedIntents.has(intent)) {\n  return [{ json: unsupported('invalid_intent', 'Router returned an unsupported intent value.') }];\n}\nif (!allowedRoutes.has(route)) {\n  return [{ json: unsupported('invalid_route', 'Router returned an unsupported route value.') }];\n}\nif (route !== expectedRouteByIntent[intent]) {\n  return [{ json: unsupported('intent_route_mismatch', 'Router returned a valid intent and route that do not belong together.') }];\n}\nconst needs_prompt_request = intent === 'new_prompt_request' || intent === 'prompt_revision' || intent === 'campaign_request';\nconst needs_media_processing = intent === 'reference_analysis' || intent === 'product_lock_request' || intent === 'character_lock_request';\nconst confidence = clampConfidence(parsed.confidence);\nconst reasoning_summary = String(parsed.reasoning_summary ?? '').trim() || 'Intent route selected from normalized user input.';\nlet unsupported_reason = parsed.unsupported_reason ?? null;\nif (intent === 'unsupported' && !unsupported_reason) unsupported_reason = 'outside_supported_scope_or_unclear';\nif (intent !== 'unsupported') unsupported_reason = null;\nreturn [{\n  json: {\n    intent,\n    route,\n    confidence,\n    needs_prompt_request,\n    needs_media_processing,\n    needs_clarification: toBool(parsed.needs_clarification),\n    reasoning_summary,\n    unsupported_reason\n  }\n}];"
+      },
+      "id": "2444acfb-d4dd-4ede-9acb-5c3dc517ec8f",
+      "name": "Parse and Validate Router JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1376,
+        160
+      ],
+      "notesInFlow": true,
+      "notes": "Parses and enforces allowed intent/route enums. Repairs invalid output to unsupported."
+    },
+    {
+      "parameters": {
+        "jsCode": "const allowedKeys = [\n  'intent',\n  'route',\n  'confidence',\n  'needs_prompt_request',\n  'needs_media_processing',\n  'needs_clarification',\n  'reasoning_summary',\n  'unsupported_reason'\n];\nconst out = {};\nfor (const key of allowedKeys) out[key] = $json[key];\nreturn [{ json: out }];"
+      },
+      "id": "31c3db38-75c3-4951-b19b-055fefa336f8",
+      "name": "Return Router Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1616,
+        160
+      ],
+      "notesInFlow": true,
+      "notes": "Returns only the approved SW-00B router contract."
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ JSON.stringify($json.router_input) }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are SW-00B Intent Router Agent for AI Creative Direction OS.  Your only job is to classify the user's high-level intent and route based on the normalized input from SW-00A.  Return ONLY valid strict JSON. No markdown. No prose. No comments. No extra keys.  Required JSON schema exactly:  { \"intent\": \"new_prompt_request | prompt_revision | reference_analysis | product_lock_request | character_lock_request | campaign_request | general_question | unsupported\", \"route\": \"create_prompt_request | revise_existing_prompt | reference_analysis_handoff | product_lock_handoff | character_lock_handoff | campaign_handoff | answer_general_question | unsupported\", \"confidence\": 0.0, \"needs_prompt_request\": false, \"needs_media_processing\": false, \"needs_clarification\": false, \"reasoning_summary\": \"short English explanation of why this route was chosen\", \"unsupported_reason\": null }  Allowed intent values only: - new_prompt_request - prompt_revision - reference_analysis - product_lock_request - character_lock_request - campaign_request - general_question - unsupported  Allowed route values only: - create_prompt_request - revise_existing_prompt - reference_analysis_handoff - product_lock_handoff - character_lock_handoff - campaign_handoff - answer_general_question - unsupported  Routing rules: 1. If SW-00A says is_empty_or_noise is true: intent = unsupported route = unsupported needs_prompt_request = false needs_media_processing = false needs_clarification = false unsupported_reason = \"empty_or_noise_input\"  2. If the user asks to create a new image/video/ad/social/key visual/creative prompt: intent = new_prompt_request route = create_prompt_request needs_prompt_request = true  3. If the user asks to change, improve, rewrite, repair, or revise a previous prompt/output: intent = prompt_revision route = revise_existing_prompt needs_prompt_request = true  4. If the user mainly asks to analyze an uploaded reference image or visual reference: intent = reference_analysis route = reference_analysis_handoff needs_media_processing = true  5. If the user asks to preserve or lock product identity, packaging, label, logo, shape, proportions, or material finish: intent = product_lock_request route = product_lock_handoff needs_media_processing = true  6. If the user asks to preserve or lock a character/person consistency across outputs: intent = character_lock_request route = character_lock_handoff needs_media_processing = true  7. If the user asks for a campaign, campaign strategy, content plan, multi-deliverable ad plan, or rollout: intent = campaign_request route = campaign_handoff needs_prompt_request = true  8. If the user asks a normal question about the system/process but not for a creative output: intent = general_question route = answer_general_question needs_prompt_request = false  9. If the request is outside the AI Creative Direction OS scope: intent = unsupported route = unsupported unsupported_reason must explain briefly.  Clarification rule: Set needs_clarification = true only if the missing information changes the route itself. Do not ask clarification just because details are incomplete. Later agents handle missing creative details.  Do not create prompt requests. Do not write database rows. Do not generate creative prompts. Do not compose the final user-facing reply."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        928,
+        160
+      ],
+      "id": "5d660960-0ab4-48b6-8ae9-1d609e9c8577",
+      "name": "OpenAI Intent Routing Call"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "builtInTools": {},
+        "options": {
+          "textFormat": {
+            "textOptions": {
+              "type": "json_object"
+            }
+          },
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        928,
+        368
+      ],
+      "id": "ef626ac5-6e00-4923-8b9a-858d3ba51a80",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "UyGBYvdMSrJClgvz",
+          "name": "OpenAI account 2"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Router Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Router Input": {
+      "main": [
+        [
+          {
+            "node": "Prepare OpenAI Router Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse and Validate Router JSON": {
+      "main": [
+        [
+          {
+            "node": "Return Router Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare OpenAI Router Input": {
+      "main": [
+        [
+          {
+            "node": "OpenAI Intent Routing Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "OpenAI Intent Routing Call",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Intent Routing Call": {
+      "main": [
+        [
+          {
+            "node": "Parse and Validate Router JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": true
+  },
+  "versionId": "674c901a-6705-480f-88e5-fe3f89fbb454",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "078ebb9a69bf38cf4453fd8eeb25933e0bb708831adc9bbc920c51805e3f39df"
+  },
+  "id": "vhghPwLMdpGzcdI3",
+  "tags": []
+}
