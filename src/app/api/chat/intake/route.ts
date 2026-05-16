@@ -175,6 +175,10 @@ function serializeProjectContext(context: ProjectContext | null): JsonObject | u
   };
 }
 
+function toJsonObject<T extends Record<string, unknown>>(value: T): JsonObject {
+  return JSON.parse(JSON.stringify(value)) as JsonObject;
+}
+
 export async function POST(request: Request) {
   const body = await readJson(request);
 
@@ -221,6 +225,7 @@ export async function POST(request: Request) {
     messageText,
     projectContext: projectResolution.context
   });
+  const detectedIntentJson = toJsonObject(detectedIntent);
 
   const promptContextPack = await buildPromptContextPack({
     messageText,
@@ -240,7 +245,7 @@ export async function POST(request: Request) {
     channel: APP_CONFIG.intakeChannel,
     attachments: [],
     metadata: {
-      detected_intent: detectedIntent as unknown as JsonObject,
+      detected_intent: detectedIntentJson,
       source: APP_CONFIG.metadataSource,
       ...(projectResolution.context
         ? {
@@ -301,7 +306,7 @@ export async function POST(request: Request) {
       await persistWorkflowContextSnapshot({
         conversationSessionId: normalized.conversation_session_id ?? body.conversation_session_id ?? null,
         metadata: {
-          detected_intent: detectedIntent,
+          detected_intent: detectedIntentJson,
           project_context: serializedProjectContext ?? undefined,
           prompt_output_contract: APP_CONFIG.promptOutputContract,
           source: APP_CONFIG.metadataSource,
