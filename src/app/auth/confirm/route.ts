@@ -5,8 +5,9 @@ import { createClient } from "@/lib/supabase/server";
 
 function redirectWithError(request: NextRequest, error: string) {
   const url = request.nextUrl.clone();
-  url.pathname = "/login";
+  url.pathname = "/";
   url.search = "";
+  url.searchParams.set("auth", "login");
   url.searchParams.set("error", error);
   return NextResponse.redirect(url);
 }

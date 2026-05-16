@@ -90,6 +90,12 @@ const DOMAIN_RETRIEVAL_CONFIGS: DomainRetrievalConfig[] = [
     select: "id, knowledge_block_id, name, category, subcategory, shot_name, shot_family, subject_scale_in_frame, camera_distance, environment_visibility, emotional_distance, prompt_fragment, failure_risks, repair_notes, tags"
   },
   {
+    domain: "scene_environment",
+    table: "scene_archetypes",
+    limit: 3,
+    select: "id, knowledge_block_id, name, category, subcategory, scene_type, environment_type, foreground_elements, midground_elements, background_elements, surface_types, set_dressing_logic, scale_logic, spatial_depth_cues, atmosphere, lighting_logic, camera_logic, prompt_fragment, failure_risks, repair_notes, tags"
+  },
+  {
     domain: "color_palette",
     table: "color_palettes",
     limit: 2,
@@ -203,24 +209,62 @@ export async function buildPromptContextPack({ messageText, outputType, platform
   return {
     assembly_contract: {
       final_prompt_only: true,
+      must_be_production_ready: true,
       must_integrate_domains_as_natural_prompt_language: true,
       must_not_list_domains_as_empty_keywords: true,
+      must_not_return_short_generic_prompt: true,
       must_use_physical_visual_language: true,
-      minimum_final_prompt_words: 300,
+      minimum_final_prompt_words: 450,
+      fallback_behavior: {
+        if_user_brief_is_minimal: "Use safe professional creative direction defaults from the retrieved database context. Do not ask clarification unless the missing input changes the output type, product identity, character identity, platform, or reference role.",
+        if_domain_rows_are_empty: "Use prompt writing rules and creative_knowledge_blocks first. If still empty, write the section with explicit physically grounded default language and mark the missing domain in metadata, not in the user-facing prompt.",
+        if_platform_is_unknown: "Use generic_image_model or generic_video_model rules based on inferred output type. Keep platform parameters separate from the final prompt."
+      },
+      output_requirements: {
+        final_prompt: "One coherent long-form prompt written as executable creative direction, not a bullet list of labels.",
+        avoid_constraints: "Separate negative or avoidance instructions from the positive prompt.",
+        metadata: "Return used domain names, used knowledge block ids, selected platform rules, validation notes, and any missing-but-defaulted fields.",
+        platform_parameters: "Return model/platform parameters separately when available."
+      },
       required_domains: [
         "lighting",
         "shadow",
         "camera",
+        "sensor",
         "lens",
+        "camera_angle",
+        "shot_type",
         "composition",
         "framing",
+        "scene_environment",
         "color_palette",
         "color_grading",
         "materials",
         "styling",
         "retouching",
         "platform_parameters"
-      ]
+      ],
+      required_prompt_sections: [
+        "hero_subject_and_action",
+        "scene_environment_and_depth",
+        "composition_and_visual_hierarchy",
+        "camera_angle_shot_type_and_framing",
+        "lens_sensor_distance_and_depth_of_field",
+        "lighting_shadow_and_highlight_behavior",
+        "materials_surface_texture_and_reflections",
+        "styling_props_and_set_dressing",
+        "color_palette_grading_and_finish",
+        "retouching_cleanup_and_artifact_prevention"
+      ],
+      validation_floor: {
+        fail_if_missing_camera_language: true,
+        fail_if_missing_composition_language: true,
+        fail_if_missing_lighting_language: true,
+        fail_if_missing_material_language: true,
+        fail_if_missing_physical_environment: true,
+        fail_if_prompt_is_under_minimum_words: true,
+        fail_if_prompt_uses_only_vague_adjectives: true
+      }
     },
     domains,
     input_snapshot: {
