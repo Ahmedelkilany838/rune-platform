@@ -3,6 +3,7 @@ import { getActiveWorkspace } from "@/lib/auth/get-active-workspace";
 import type { ChatApiResponse, ChatRequest, JsonObject } from "@/lib/chat-types";
 import { normalizeWorkflowResponse } from "@/lib/normalize-workflow-response";
 import { buildPromptContextPack } from "@/lib/prompt-context-pack";
+import { detectRequestIntent } from "@/lib/request-intent";
 import { createClient } from "@/lib/supabase/server";
 import { persistWorkflowContextSnapshot } from "@/lib/workflow-persistence";
 
@@ -15,6 +16,7 @@ type IntakePayload = {
   channel: typeof APP_CONFIG.intakeChannel;
   attachments: [];
   metadata: {
+    detected_intent?: JsonObject;
     source: typeof APP_CONFIG.metadataSource;
     is_temporary?: boolean;
     project_context?: {
@@ -214,10 +216,16 @@ export async function POST(request: Request) {
 
   const supabase = await createClient();
   const serializedProjectContext = serializeProjectContext(projectResolution.context) ?? null;
+
+  const detectedIntent = detectRequestIntent({
+    messageText,
+    projectContext: projectResolution.context
+  });
+
   const promptContextPack = await buildPromptContextPack({
     messageText,
-    outputType: null,
-    platform: null,
+    outputType: detectedIntent.output_type,
+    platform: detectedIntent.platform,
     projectContext: serializedProjectContext,
     supabase
   });
@@ -232,6 +240,7 @@ export async function POST(request: Request) {
     channel: APP_CONFIG.intakeChannel,
     attachments: [],
     metadata: {
+      detected_intent: detectedIntent as unknown as JsonObject,
       source: APP_CONFIG.metadataSource,
       ...(projectResolution.context
         ? {
@@ -292,6 +301,7 @@ export async function POST(request: Request) {
       await persistWorkflowContextSnapshot({
         conversationSessionId: normalized.conversation_session_id ?? body.conversation_session_id ?? null,
         metadata: {
+          detected_intent: detectedIntent,
           project_context: serializedProjectContext ?? undefined,
           prompt_output_contract: APP_CONFIG.promptOutputContract,
           source: APP_CONFIG.metadataSource,
