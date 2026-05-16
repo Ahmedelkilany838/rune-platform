@@ -11,7 +11,7 @@ vi.mock("@supabase/ssr", () => ({
   }))
 }));
 
-import { proxy } from "@/proxy";
+import { middleware as proxy } from "@/middleware";
 
 function request(pathname: string) {
   return new NextRequest(new URL(`http://localhost:3000${pathname}`));
