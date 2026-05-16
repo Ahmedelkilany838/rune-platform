@@ -7,6 +7,7 @@ type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
 type PersistWorkflowContextArgs = {
   conversationSessionId: string | null;
   metadata: {
+    detected_intent?: JsonObject;
     project_context?: JsonObject;
     prompt_output_contract: typeof APP_CONFIG.promptOutputContract;
     source: typeof APP_CONFIG.metadataSource;
@@ -187,6 +188,7 @@ export async function persistWorkflowContextSnapshot({
       request_context: {
         ...existingContext,
         conversation_session_id: conversationSessionId,
+        detected_intent: metadata.detected_intent ?? null,
         project_context: metadata.project_context ?? null,
         prompt_output_contract: getPromptOutputContractSnapshot(),
         source: metadata.source,
