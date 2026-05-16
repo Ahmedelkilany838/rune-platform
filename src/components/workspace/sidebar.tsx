@@ -641,14 +641,15 @@ function ChatSessionRows({
                     className="fixed z-[100] w-56 rounded-xl border border-white/[0.1] bg-[#1c1c1c] py-1 shadow-xl animate-in fade-in zoom-in-95 duration-100"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <button className="flex w-full items-center gap-3 px-3 py-2 text-[13px] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white">
+                    <button onClick={(e) => e.stopPropagation()} className="flex w-full items-center gap-3 px-3 py-2 text-[13px] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white">
                       <Share className="w-4 h-4" /> Share
                     </button>
-                    <button className="flex w-full items-center gap-3 px-3 py-2 text-[13px] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white">
+                    <button onClick={(e) => e.stopPropagation()} className="flex w-full items-center gap-3 px-3 py-2 text-[13px] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white">
                       <UserPlus className="w-4 h-4" /> Share workspace access
                     </button>
                     <button 
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setEditValue(session.title);
                         setEditingId(session.id);
                         setOpenMenuId(null);
@@ -663,7 +664,7 @@ function ChatSessionRows({
                       onMouseEnter={() => setShowProjectSubmenu(session.id)}
                       onMouseLeave={() => setShowProjectSubmenu(null)}
                     >
-                      <button className="flex w-full items-center justify-between px-3 py-2 text-[13px] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white">
+                      <button onClick={(e) => { e.stopPropagation(); }} className="flex w-full items-center justify-between px-3 py-2 text-[13px] text-zinc-300 transition-colors hover:bg-white/[0.08] hover:text-white">
                         <div className="flex items-center gap-3">
                           <FolderPlus className="w-4 h-4" /> Move to project
                         </div>
@@ -673,7 +674,8 @@ function ChatSessionRows({
                       {showProjectSubmenu === session.id && (
                         <div className="absolute left-full top-0 ml-1 w-56 rounded-xl bg-[#262626] border border-white/[0.1] shadow-2xl py-1 animate-in fade-in slide-in-from-left-2 duration-150">
                           <button 
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               onNewProject();
                               setOpenMenuId(null);
                             }}
@@ -686,7 +688,8 @@ function ChatSessionRows({
                             {projects.map(proj => (
                               <button 
                                 key={proj.id}
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   onMoveChat(session.id, proj.id);
                                   setOpenMenuId(null);
                                 }}
@@ -705,7 +708,8 @@ function ChatSessionRows({
                     </div>
 
                     <button 
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         onTogglePinChat(session.id);
                         setOpenMenuId(null);
                       }}
@@ -714,7 +718,8 @@ function ChatSessionRows({
                       <Pin className={cn("w-4 h-4", session.isPinned && "fill-current")} /> {session.isPinned ? "Unpin chat" : "Pin chat"}
                     </button>
                     <button 
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         onToggleArchiveChat(session.id);
                         setOpenMenuId(null);
                       }}
@@ -723,7 +728,8 @@ function ChatSessionRows({
                       <Archive className="w-4 h-4" /> {session.isArchived ? "Unarchive" : "Archive"}
                     </button>
                     <button 
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.stopPropagation();
                         setChatToDelete(session.id);
                         setOpenMenuId(null);
                       }}

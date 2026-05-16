@@ -68,10 +68,9 @@ function dedupeSessions(sessions: StoredChatSession[]) {
 
   for (const session of sorted) {
     const canonicalKey = getSessionCanonicalKey(session);
-    const titleKey = [session.projectId ?? "global", session.title.trim().toLowerCase(), session.createdAt].join("|");
-    const keys = [canonicalKey, titleKey].filter(Boolean);
-    if (keys.some((key) => seen.has(key))) continue;
-    keys.forEach((key) => seen.add(key));
+    if (seen.has(canonicalKey)) continue;
+    
+    seen.add(canonicalKey);
     result.push(session);
   }
 
@@ -361,7 +360,13 @@ export function AppShell({ user }: { user: AppUser }) {
     setLatestResponse(session.latestResponse);
     setConnectionStatus(session.latestResponse ? (session.latestResponse.ok ? "connected" : "error") : "not_tested");
     setComposerValue("");
-    if (shouldUpdateRoute) updateUrl(session.id, session.projectId, false);
+    if (shouldUpdateRoute) {
+      if (isTemporarySessionId(messageSessionId)) {
+        updateUrl(null, session.projectId, true);
+      } else {
+        updateUrl(session.id, session.projectId, false);
+      }
+    }
     if (isTemporarySessionId(messageSessionId)) return;
     try {
       const fetchedMessages = await fetchConversationMessages(messageSessionId);
@@ -436,7 +441,6 @@ export function AppShell({ user }: { user: AppUser }) {
       if (activeChatIdRef.current === chatId || activeChatIdRef.current === nextConversationSessionId) {
         activeChatIdRef.current = id;
         setActiveChatId(id);
-        updateUrl(null, null, true);
       }
       return nextSession;
     }
@@ -444,7 +448,9 @@ export function AppShell({ user }: { user: AppUser }) {
     if (activeChatIdRef.current === chatId || activeChatIdRef.current === nextConversationSessionId) {
       activeChatIdRef.current = id;
       setActiveChatId(id);
-      if (id !== chatId) updateUrl(id, nextSession.projectId ?? activeProjectId, false);
+      if (nextConversationSessionId) {
+        updateUrl(id, nextSession.projectId ?? activeProjectId, false);
+      }
     }
     return nextSession;
   }
@@ -531,7 +537,7 @@ export function AppShell({ user }: { user: AppUser }) {
         <Sidebar
           activeChatId={activeChatId}
           activeProjectId={activeProjectId}
-          chatSessions={visibleChatSessions}
+          chatSessions={globalChatSessions}
           projects={projects}
           collapsed={sidebarCollapsed}
           onExpand={() => setSidebarCollapsed(false)}

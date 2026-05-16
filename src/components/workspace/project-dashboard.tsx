@@ -107,14 +107,13 @@ export function ProjectDashboard({
               return (
                 <div 
                   key={chat.id}
-                  onClick={() => onSelectChat(chat.id)}
-                  className="group flex cursor-pointer items-start gap-4 rounded-xl border border-transparent p-3 transition-colors hover:border-white/[0.05] hover:bg-white/[0.04]"
+                  className="group flex items-start gap-4 rounded-xl border border-transparent p-3 transition-colors hover:border-white/[0.05] hover:bg-white/[0.04]"
                 >
-                  <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#303030] text-[11px] font-bold text-zinc-200">
+                  <button onClick={() => onSelectChat(chat.id)} className="cursor-pointer mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#303030] text-[11px] font-bold text-zinc-200">
                     {project.name.substring(0, 2).toUpperCase()}
-                  </div>
+                  </button>
                   
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onSelectChat(chat.id)}>
                     <h3 className="truncate text-[14px] font-medium text-zinc-200">{chat.title}</h3>
                     <p className="mt-0.5 truncate text-[13px] text-zinc-500">
                       {preview}
@@ -122,10 +121,20 @@ export function ProjectDashboard({
                   </div>
 
                   <div className="ml-4 flex shrink-0 items-center gap-3">
-                    <span className="text-[12px] text-zinc-500">{formattedDate}</span>
-                    <button className="rounded-md p-1.5 text-zinc-400 opacity-0 transition-all hover:bg-white/[0.1] group-hover:opacity-100">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </button>
+                    <span className="text-[12px] text-zinc-500 cursor-pointer" onClick={() => onSelectChat(chat.id)}>{formattedDate}</span>
+                    <div className="relative">
+                      <button 
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          // The portal/menu needs to be passed in or handled natively, 
+                          // but for now, we just enforce no-op or actual dropdown if we migrate ProjectDashboard to use ChatSessionRows.
+                        }}
+                        className="rounded-md p-1.5 text-zinc-400 opacity-0 transition-all hover:bg-white/[0.1] group-hover:opacity-100"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
               );
