@@ -950,19 +950,6 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = $json || {};\n\nconst messageText =\n  raw.chatInput ??\n  raw.message_text ??\n  raw.text ??\n  raw.message ??\n  '';\n\nreturn {\n  json: {\n    ...raw,\n\n    message_text: String(messageText || ''),\n    channel: raw.channel || 'n8n_chat_test',\n\n    workspace_id:\n      raw.workspace_id ||\n      raw.metadata?.workspace_id ||\n      '22222222-2222-4222-8222-222222222222',\n\n    user_id:\n      raw.user_id ||\n      raw.metadata?.user_id ||\n      '11111111-1111-4111-8111-111111111111',\n\n    project_id:\n      raw.project_id ?? null,\n\n    conversation_session_id:\n      raw.conversation_session_id ?? null,\n\n    attachments:\n      Array.isArray(raw.attachments) ? raw.attachments : [],\n\n    metadata: {\n      ...(raw.metadata || {}),\n      source: raw.metadata?.source || 'n8n_chat_trigger_manual_test',\n      context_injected_for_chat_test: true\n    }\n  }\n};"
-      },
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -58944,
-        3408
-      ],
-      "id": "9c132369-5b6a-471b-8eb3-89f0e4536639",
-      "name": "Attach Chat Test Context"
-    },
-    {
-      "parameters": {
         "method": "POST",
         "url": "={{ $env.SUPABASE_URL + '/functions/v1/ingest-research-document' }}",
         "sendHeaders": true,
@@ -1078,7 +1065,7 @@
       "main": [
         [
           {
-            "node": "Attach Chat Test Context",
+            "node": "Normalize Incoming Payload",
             "type": "main",
             "index": 0
           }
@@ -1564,17 +1551,6 @@
         [
           {
             "node": "Detect Input Types",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Attach Chat Test Context": {
-      "main": [
-        [
-          {
-            "node": "Normalize Incoming Payload",
             "type": "main",
             "index": 0
           }
